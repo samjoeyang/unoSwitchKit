@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { StatusDot } from "./StatusDot";
+import { DeepSeekKeyForm } from "./DeepSeekKeyForm";
 import { api } from "../ipc";
 import type { DeepSeekAccountBalance, DeepSeekKey } from "../types";
 
@@ -10,30 +11,39 @@ function currencySymbol(c: string) {
   return c === "USD" ? "$" : c === "CNY" ? "¥" : `${c} `;
 }
 
-/// DeepSeek 余额区：支持多个 API Key；无 Key 时不显示余额（仅留极简添加入口）。
-export function DeepSeekSection() {
+interface Props {
+  /// 外部（设置页）新增 Key 后递增，触发重新读取
+  version?: number;
+  /// Key 增删后通知外部（设置页同步 Key 数量）
+  onChanged?: () => void;
+}
+
+/// DeepSeek 余额区：支持多个 API Key。
+/// 无 Key 时整块不显示（首次添加入口在「设置」里）。
+export function DeepSeekSection({ version = 0, onChanged }: Props) {
   const [loaded, setLoaded] = useState(false);
   const [keys, setKeys] = useState<DeepSeekKey[]>([]);
   const [balances, setBalances] = useState<DeepSeekAccountBalance[]>([]);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [label, setLabel] = useState("");
-  const [apiKey, setApiKey] = useState("");
   const [msg, setMsg] = useState("");
 
-  // 初始化：读取已保存的 Keys
+  const reloadKeys = useCallback(async () => {
+    try {
+      const s = await api.getSettings();
+      setKeys(s.deepseek_keys ?? []);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // 初始化 / 外部新增 Key 后重新读取
   useEffect(() => {
     (async () => {
-      try {
-        const s = await api.getSettings();
-        setKeys(s.deepseek_keys ?? []);
-      } catch {
-        /* ignore */
-      } finally {
-        setLoaded(true);
-      }
+      await reloadKeys();
+      setLoaded(true);
     })();
-  }, []);
+  }, [reloadKeys, version]);
 
   const refreshBalances = useCallback(async () => {
     if (keys.length === 0) {
@@ -68,62 +78,20 @@ export function DeepSeekSection() {
     };
   }, [keys.length, refreshBalances]);
 
-  async function persist(next: DeepSeekKey[]) {
-    const s = await api.getSettings();
-    s.deepseek_keys = next;
-    await api.saveSettings(s);
-    setKeys(next);
-  }
-
-  async function addKey() {
-    const key = apiKey.trim();
-    if (!key) {
-      setMsg("请填写 API Key");
-      return;
-    }
-    const next = [
-      ...keys,
-      {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        label: label.trim() || `Key ${keys.length + 1}`,
-        api_key: key,
-      },
-    ];
-    try {
-      await persist(next);
-      setLabel("");
-      setApiKey("");
-      setAdding(false);
-      setMsg("已添加，正在查询余额…");
-    } catch (e) {
-      setMsg(`保存失败：${e}`);
-    }
-  }
-
   async function removeKey(id: string) {
     try {
-      await persist(keys.filter((k) => k.id !== id));
+      const s = await api.getSettings();
+      s.deepseek_keys = (s.deepseek_keys ?? []).filter((k) => k.id !== id);
+      await api.saveSettings(s);
+      setKeys(s.deepseek_keys);
       setMsg("已删除");
+      onChanged?.();
     } catch (e) {
       setMsg(`删除失败：${e}`);
     }
   }
 
-  if (!loaded) return null;
-
-  // 无 Key：不显示余额区，仅保留一个极简添加入口
-  if (keys.length === 0 && !adding) {
-    return (
-      <div className="mt-3 flex justify-end">
-        <button
-          onClick={() => setAdding(true)}
-          className="text-[10px] text-white/30 transition hover:text-white/60"
-        >
-          + DeepSeek 余额
-        </button>
-      </div>
-    );
-  }
+  if (!loaded || keys.length === 0) return null;
 
   return (
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
@@ -134,7 +102,7 @@ export function DeepSeekSection() {
         <div className="flex items-center gap-3 text-[10px]">
           <button
             onClick={refreshBalances}
-            disabled={loading || keys.length === 0}
+            disabled={loading}
             className="text-white/50 transition hover:text-white/85 disabled:opacity-40"
           >
             {loading ? "刷新中…" : "刷新"}
@@ -148,8 +116,8 @@ export function DeepSeekSection() {
         </div>
       </div>
 
-      <div className="mt-2 space-y-1.5">
-        {keys.length > 0 && balances.length === 0 && (
+      <div className="thin-scroll mt-2 max-h-[168px] space-y-1.5 overflow-y-auto pr-1">
+        {balances.length === 0 && (
           <div className="text-[11px] text-white/40">查询中…</div>
         )}
         {balances.map((b) => (
@@ -198,43 +166,16 @@ export function DeepSeekSection() {
       </div>
 
       {adding && (
-        <div className="mt-2 space-y-1.5 border-t border-white/10 pt-2">
-          <input
-            value={label}
-            onChange={(e) => setLabel(e.target.value)}
-            placeholder="备注（可选，如：主账号）"
-            className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/85 placeholder:text-white/30 focus:border-indigo-400/50 focus:outline-none"
+        <div className="mt-2 border-t border-white/10 pt-2">
+          <DeepSeekKeyForm
+            onSaved={async () => {
+              await reloadKeys();
+              setAdding(false);
+              setMsg("已添加，正在查询余额…");
+              onChanged?.();
+            }}
+            onCancel={() => setAdding(false)}
           />
-          <input
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            type="password"
-            placeholder="sk-... API Key"
-            className="w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/85 placeholder:text-white/30 focus:border-indigo-400/50 focus:outline-none"
-          />
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] text-white/30">
-              仅保存在本机配置文件中
-            </span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => {
-                  setAdding(false);
-                  setLabel("");
-                  setApiKey("");
-                }}
-                className="text-[10px] text-white/45 transition hover:text-white/70"
-              >
-                取消
-              </button>
-              <button
-                onClick={addKey}
-                className="rounded bg-indigo-500/20 px-2 py-0.5 text-[10px] text-indigo-100 transition hover:bg-indigo-500/30"
-              >
-                保存
-              </button>
-            </div>
-          </div>
         </div>
       )}
 

@@ -3,10 +3,14 @@ import { ToggleGrid, type ToggleKey } from "./components/ToggleGrid";
 import { ResourcePanel } from "./components/ResourcePanel";
 import { BluetoothSection } from "./components/BluetoothSection";
 import { DeepSeekSection } from "./components/DeepSeekSection";
+import { SettingsSection } from "./components/SettingsSection";
 import { StatusDot } from "./components/StatusDot";
 import { api } from "./ipc";
 import { checkAndInstall } from "./update";
 import type { ToggleStates } from "./types";
+
+/// 应用版本（设置面板「检查更新」中展示）
+const APP_VERSION = "0.3.9";
 
 export default function App() {
   const [states, setStates] = useState<ToggleStates | null>(null);
@@ -16,6 +20,11 @@ export default function App() {
   const [updateEnabled, setUpdateEnabled] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  // DeepSeek Key 变动版本号：设置页新增 / 余额区删除后递增，驱动双方同步
+  const [dsVersion, setDsVersion] = useState(0);
+  // 设置项操作提示（alert 在 WKWebView 中被禁用，改用面板内提示）
+  const [notice, setNotice] = useState<string | null>(null);
 
   async function refresh() {
     try {
@@ -90,11 +99,13 @@ export default function App() {
 
   async function toggleLaunch() {
     const next = !launch;
+    setNotice(null);
     try {
       await api.setLaunchAtLogin(next);
       setLaunch(next);
+      setNotice(next ? "已开启开机自启" : "已关闭开机自启");
     } catch (e) {
-      alert(`自启设置失败：${e}`);
+      setNotice(`自启设置失败：${e}`);
     }
   }
 
@@ -128,56 +139,66 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-white/40">v0.3.8</span>
+        <span className="text-[10px] text-white/40">v{APP_VERSION}</span>
       </div>
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
       <ResourcePanel />
       <BluetoothSection />
-      <DeepSeekSection />
+      <DeepSeekSection
+        version={dsVersion}
+        onChanged={() => setDsVersion((v) => v + 1)}
+      />
+
+      {showSettings && (
+        <SettingsSection
+          version={APP_VERSION}
+          launch={launch}
+          onToggleLaunch={toggleLaunch}
+          updating={updating}
+          updateMsg={updateMsg}
+          onCheckUpdate={onCheckUpdate}
+          dsVersion={dsVersion}
+          notice={notice}
+          onDeepSeekChanged={() => setDsVersion((v) => v + 1)}
+          onClose={() => {
+            setShowSettings(false);
+            setNotice(null);
+          }}
+        />
+      )}
 
       <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-2">
-        <label className="flex cursor-pointer items-center gap-2 text-[12px] text-white/70">
-          <input
-            type="checkbox"
-            checked={launch}
-            onChange={toggleLaunch}
-            className="accent-indigo-400"
-          />
-          开机自启
-        </label>
         <div className="flex items-center gap-3 text-[11px] text-white/50">
+          <button
+            onClick={() => setShowSettings((v) => !v)}
+            className={
+              "flex items-center gap-1 rounded px-2 py-0.5 transition hover:bg-white/10 " +
+              (showSettings ? "bg-white/10 text-white/85" : "text-white/60 hover:text-white/90")
+            }
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            设置
+          </button>
           <span className="flex items-center gap-1.5">
             <StatusDot on={sidecar === true} /> 原生守护
           </span>
-          <button
-            onClick={async () => {
-              try {
-                await api.quitApp();
-              } catch {
-                /* ignore */
-              }
-            }}
-            className="transition hover:text-white/80"
-          >
-            退出
-          </button>
         </div>
-      </div>
-
-      <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
         <button
-          onClick={onCheckUpdate}
-          disabled={updating}
-          className="rounded px-2 py-0.5 text-[11px] text-white/60 transition hover:bg-white/10 hover:text-white/90 disabled:opacity-40"
+          onClick={async () => {
+            try {
+              await api.quitApp();
+            } catch {
+              /* ignore */
+            }
+          }}
+          className="text-[11px] text-white/50 transition hover:text-white/80"
         >
-          {updating ? "检查中…" : "检查更新"}
+          退出
         </button>
-        {updateMsg && (
-          <span className="max-w-[180px] truncate text-right text-[10px] text-white/40" title={updateMsg}>
-            {updateMsg}
-          </span>
-        )}
       </div>
     </div>
   );

@@ -51,7 +51,8 @@ export function BluetoothSection() {
           {devices.filter((d) => d.connected).length}/{devices.length} 已连接
         </span>
       </div>
-      <div className="mt-2 space-y-1">
+      {/* 设备较多时限高滚动，最多显示约 3 个设备，避免整块过高 */}
+      <div className="thin-scroll mt-2 max-h-[134px] space-y-1 overflow-y-auto pr-1">
         {devices.map((d) => {
           const busy = busyAddr === d.address;
           return (
