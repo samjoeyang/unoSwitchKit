@@ -17,9 +17,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* 面板内容超出固定窗口高度时内部滚动 */
+/* 面板内容超出固定窗口高度时内部滚动；横向永不滚动（修复底部多余滚动条） */
 #root {
   overflow-y: auto;
+  overflow-x: hidden;
 }
 #root::-webkit-scrollbar {
   width: 6px;
