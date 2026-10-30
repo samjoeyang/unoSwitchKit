@@ -16,6 +16,7 @@ export function ResourcePanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [cmp, setCmp] = useState<MemoryComparison | null>(null);
   const [preview, setPreview] = useState<CachePreview | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [msg, setMsg] = useState<string>("");
 
   async function release() {
@@ -46,6 +47,7 @@ export function ResourcePanel() {
     }
   }
   async function previewCache() {
+    setConfirmClear(false);
     setBusy("cache-p");
     setMsg("");
     try {
@@ -58,12 +60,21 @@ export function ResourcePanel() {
   }
   async function clearCache() {
     if (!preview) {
-      setMsg("请先点击预览");
+      setMsg("请先点击「预览」");
       return;
     }
     const dirs = preview.items.filter((i) => i.exists).length;
-    if (!confirm(`确认清理 ${dirs} 个缓存目录（约 ${fmtBytes(preview.total_bytes)}）？`))
+    // 两步确认：首次点击进入待确认态，再次点击才真正执行。
+    // 注意：Tauri 的 webview 基于 WKWebView，原生 window.confirm 被静默禁用
+    // （不弹窗且恒返回 false），故此处用前端状态实现二次确认，避免点击无反应。
+    if (!confirmClear) {
+      setConfirmClear(true);
+      setMsg(
+        `将清理 ${dirs} 个缓存目录（约 ${fmtBytes(preview.total_bytes)}），再次点击「清理」确认`
+      );
       return;
+    }
+    setConfirmClear(false);
     setBusy("cache-c");
     setMsg("");
     try {
@@ -110,9 +121,13 @@ export function ResourcePanel() {
             <button
               onClick={clearCache}
               disabled={busy === "cache-c" || !preview}
-              className="text-[11px] text-rose-300 hover:text-rose-200 disabled:opacity-40"
+              className={
+                confirmClear
+                  ? "rounded px-1 text-[11px] font-semibold text-rose-300 ring-1 ring-rose-400/60"
+                  : "text-[11px] text-rose-300 hover:text-rose-200 disabled:opacity-40"
+              }
             >
-              清理
+              {confirmClear ? "确认清理" : "清理"}
             </button>
           </div>
         </div>
