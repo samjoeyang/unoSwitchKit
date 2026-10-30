@@ -132,6 +132,8 @@ if [ -n "$UPDATE_BACKUP" ]; then
 fi
 
 APP="$BUNDLE_DIR/macos/SwitchKit.app"
+# 分发包路径：在 if 块外无条件定义，避免 set -u 下收尾阶段引用未赋值变量而报错
+ZIP="${BUNDLE_DIR}/macos/SwitchKit-adhoc.zip"
 
 echo "== [4/4] 签名收尾与验证 =="
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
@@ -161,10 +163,9 @@ codesign -dv "$DAEMON_IN_APP" 2>&1 | head -2 || true
 # 注意：必须用 `zip -r -y`，不能用 `ditto -c -k`——ditto 会把源目录的「内容」
 # 直接打进压缩包根，丢弃 .app 包裹层，导致解压后只剩 Contents/ 而非 SwitchKit.app。
 # -y 保留可能的符号链接；从 macos 目录内用裸名 SwitchKit.app 打包以保持包裹层。
-if [ "$DMG_OK" = 0 ]; then
-  ZIP="$BUNDLE_DIR/macos/SwitchKit-adhoc.zip"
+if [ "${DMG_OK:-0}" = 0 ]; then
   rm -f "$ZIP"
-  ( cd "$BUNDLE_DIR/macos" && zip -r -y "SwitchKit-adhoc.zip" "SwitchKit.app" )
+  ( cd "${BUNDLE_DIR}/macos" && zip -r -y "SwitchKit-adhoc.zip" "SwitchKit.app" )
   echo "   分发 zip：$ZIP（解压后为 SwitchKit.app，右键 → 打开）"
 fi
 
