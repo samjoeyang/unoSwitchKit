@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+    sans-serif;
+}
+
+body {
+  background: transparent;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 面板内容超出固定窗口高度时内部滚动 */
+#root {
+  overflow-y: auto;
+}
+#root::-webkit-scrollbar {
+  width: 6px;
+}
+#root::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+#root::-webkit-scrollbar-track {
+  background: transparent;
+}

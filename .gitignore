@@ -1,0 +1,15 @@
+# 依赖
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+
+# 构建产物
+dist/
+*.log
+src-tauri/binaries/
+
+# macOS
+.DS_Store
+
+# 运行期生成
+src-tauri/Info.plist
