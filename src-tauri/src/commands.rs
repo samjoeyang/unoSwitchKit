@@ -50,7 +50,7 @@ fn trash_count() -> u32 {
         .unwrap_or(0)
 }
 
-fn is_prevent_sleep(state: State<AppState>) -> bool {
+fn is_prevent_sleep(state: &AppState) -> bool {
     let mut guard = state.caffeinate.lock().unwrap();
     if let Some(child) = guard.as_mut() {
         match child.try_wait() {
@@ -159,30 +159,28 @@ fn parse_memory() -> Result<MemoryStat, String> {
 
 // ---------------- 命令 ----------------
 
+/// 注：本命令涉及十余次外部进程调用（defaults/osascript/sw_vers），必须 async
+/// 在线程池执行——同步命令跑在主线程上，会令面板出现彩虹圈。
 #[tauri::command]
-pub fn get_toggle_states(state: State<AppState>) -> ToggleStates {
+pub async fn get_toggle_states(state: State<'_, AppState>) -> Result<ToggleStates, String> {
     let major = os_major_version();
-    // 先读本应用内存状态（借用 state），再把它移入 is_prevent_sleep
-    let screen_clean = state
-        .screen_cleaned
-        .lock()
-        .map(|g| *g)
-        .unwrap_or(false);
-    ToggleStates {
+    let s = state.inner();
+    let screen_clean = s.screen_cleaned.lock().map(|g| *g).unwrap_or(false);
+    Ok(ToggleStates {
         dark_mode: is_dark_mode(),
         desktop_hidden: is_desktop_hidden(),
-        prevent_sleep: is_prevent_sleep(state),
+        prevent_sleep: is_prevent_sleep(s),
         trash_count: trash_count(),
         hide_dock: is_hide_dock(),
         show_hidden_files: is_show_hidden_files(),
         screen_clean,
         stage_manager: if major >= 13 { is_stage_manager() } else { false },
         stage_manager_available: major >= 13,
-    }
+    })
 }
 
 #[tauri::command]
-pub fn toggle_dark_mode() -> Result<bool, String> {
+pub async fn toggle_dark_mode() -> Result<bool, String> {
     let next = !is_dark_mode();
     let script = format!(
         "tell application \"System Events\" to tell appearance preferences to set dark mode to {}",
@@ -193,7 +191,7 @@ pub fn toggle_dark_mode() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn toggle_hide_desktop() -> Result<bool, String> {
+pub async fn toggle_hide_desktop() -> Result<bool, String> {
     let next_hidden = !is_desktop_hidden();
     let val = if next_hidden { "false" } else { "true" };
     util::run(
@@ -205,7 +203,7 @@ pub fn toggle_hide_desktop() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn toggle_prevent_sleep(state: State<AppState>) -> Result<bool, String> {
+pub async fn toggle_prevent_sleep(state: State<'_, AppState>) -> Result<bool, String> {
     let mut guard = state.caffeinate.lock().unwrap();
     if let Some(mut child) = guard.take() {
         let _ = child.kill();
@@ -220,7 +218,7 @@ pub fn toggle_prevent_sleep(state: State<AppState>) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn empty_trash() -> Result<u32, String> {
+pub async fn empty_trash() -> Result<u32, String> {
     let before = trash_count();
     // 优先走 Finder 清空：系统级行为，能处理锁定/权限特殊的文件
     if util::run_osascript("tell application \"Finder\" to empty trash").is_ok() {
@@ -240,7 +238,7 @@ pub fn empty_trash() -> Result<u32, String> {
 }
 
 #[tauri::command]
-pub fn toggle_hide_dock() -> Result<bool, String> {
+pub async fn toggle_hide_dock() -> Result<bool, String> {
     let next = !is_hide_dock();
     let val = if next { "true" } else { "false" };
     util::run("defaults", &["write", "com.apple.dock", "autohide", "-bool", val])?;
@@ -249,7 +247,7 @@ pub fn toggle_hide_dock() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn toggle_show_hidden_files() -> Result<bool, String> {
+pub async fn toggle_show_hidden_files() -> Result<bool, String> {
     let next = !is_show_hidden_files();
     let val = if next { "true" } else { "false" };
     util::run(
@@ -261,7 +259,7 @@ pub fn toggle_show_hidden_files() -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub fn toggle_screen_clean(state: State<AppState>) -> Result<bool, String> {
+pub async fn toggle_screen_clean(state: State<'_, AppState>) -> Result<bool, String> {
     let mut cleaned = state.screen_cleaned.lock().map_err(|_| "状态锁中毒")?;
     if *cleaned {
         // 恢复：把所有「无 UI 豁免、当前不可见」的常规 App 重新显示
@@ -293,7 +291,7 @@ end tell"#,
 }
 
 #[tauri::command]
-pub fn toggle_stage_manager() -> Result<bool, String> {
+pub async fn toggle_stage_manager() -> Result<bool, String> {
     if os_major_version() < 13 {
         return Err("台前调度需要 macOS 13 (Ventura) 及以上".to_string());
     }
@@ -312,7 +310,7 @@ pub fn toggle_stage_manager() -> Result<bool, String> {
 
 /// 枚举已配对蓝牙设备。
 #[tauri::command]
-pub fn bt_devices() -> Result<Vec<BtDevice>, String> {
+pub async fn bt_devices() -> Result<Vec<BtDevice>, String> {
     let v = sidecar_call(json!({ "cmd": "bt:devices" }), 500, 3000)?;
     let devices = v.get("devices").cloned().unwrap_or_else(|| json!([]));
     serde_json::from_value(devices).map_err(|e| e.to_string())
@@ -320,7 +318,7 @@ pub fn bt_devices() -> Result<Vec<BtDevice>, String> {
 
 /// 一键连接（守护侧轮询等待，最长 10s）。
 #[tauri::command]
-pub fn bt_connect(address: String) -> Result<bool, String> {
+pub async fn bt_connect(address: String) -> Result<bool, String> {
     let v = sidecar_call(
         json!({ "cmd": "bt:connect", "address": address }),
         500,
@@ -331,7 +329,7 @@ pub fn bt_connect(address: String) -> Result<bool, String> {
 
 /// 断开连接。
 #[tauri::command]
-pub fn bt_disconnect(address: String) -> Result<bool, String> {
+pub async fn bt_disconnect(address: String) -> Result<bool, String> {
     let v = sidecar_call(
         json!({ "cmd": "bt:disconnect", "address": address }),
         500,
@@ -352,7 +350,7 @@ pub fn quit_app(app: AppHandle) {
 
 /// 锁定屏幕：CGSession -suspend（Monterey 可用），失败回退熄屏。
 #[tauri::command]
-pub fn lock_screen() -> Result<(), String> {
+pub async fn lock_screen() -> Result<(), String> {
     util::run(
         "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
         &["-suspend"],
@@ -363,19 +361,19 @@ pub fn lock_screen() -> Result<(), String> {
 
 /// 清空剪贴板。
 #[tauri::command]
-pub fn clear_clipboard() -> Result<(), String> {
+pub async fn clear_clipboard() -> Result<(), String> {
     util::run("sh", &["-c", ": | pbcopy"]).map(|_| ())
 }
 
 /// 启动屏幕保护。
 #[tauri::command]
-pub fn start_screensaver() -> Result<(), String> {
+pub async fn start_screensaver() -> Result<(), String> {
     util::run("open", &["-a", "ScreenSaverEngine"]).map(|_| ())
 }
 
 /// 优雅退出所有前台 App（跳过自身与 Finder），返回已请求退出的数量。
 #[tauri::command]
-pub fn close_all_apps() -> Result<u32, String> {
+pub async fn close_all_apps() -> Result<u32, String> {
     let script = format!(
         r#"tell application "System Events"
   set quitCount to 0
@@ -398,7 +396,7 @@ end tell"#,
 }
 
 #[tauri::command]
-pub fn release_memory() -> Result<MemoryComparison, String> {
+pub async fn release_memory() -> Result<MemoryComparison, String> {
     let before = parse_memory()?;
     crate::privilege::run_as_root("purge")?;
     let after = parse_memory()?;
@@ -406,13 +404,13 @@ pub fn release_memory() -> Result<MemoryComparison, String> {
 }
 
 #[tauri::command]
-pub fn flush_dns() -> Result<(), String> {
+pub async fn flush_dns() -> Result<(), String> {
     crate::privilege::run_as_root("dscacheutil -flushcache; killall -HUP mDNSResponder")?;
     Ok(())
 }
 
 #[tauri::command]
-pub fn preview_cache_cleanup() -> CachePreview {
+pub async fn preview_cache_cleanup() -> CachePreview {
     let items = crate::cache_whitelist::preview();
     let total_bytes: u64 = items.iter().map(|i| i.size_bytes).sum();
     CachePreview {
@@ -422,32 +420,32 @@ pub fn preview_cache_cleanup() -> CachePreview {
 }
 
 #[tauri::command]
-pub fn clear_cache() -> Result<u64, String> {
+pub async fn clear_cache() -> Result<u64, String> {
     crate::cache_whitelist::clear()
 }
 
 #[tauri::command]
-pub fn get_memory_stats() -> Result<MemoryStat, String> {
+pub async fn get_memory_stats() -> Result<MemoryStat, String> {
     parse_memory()
 }
 
 #[tauri::command]
-pub fn get_settings(app: AppHandle) -> Settings {
+pub async fn get_settings(app: AppHandle) -> Settings {
     crate::store::load_settings(&app)
 }
 
 #[tauri::command]
-pub fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
     crate::store::save_settings(&app, &settings)
 }
 
 #[tauri::command]
-pub fn set_launch_at_login(enabled: bool) -> Result<(), String> {
+pub async fn set_launch_at_login(enabled: bool) -> Result<(), String> {
     crate::store::set_launch_at_login(enabled)
 }
 
 #[tauri::command]
-pub fn is_launch_at_login() -> Result<bool, String> {
+pub async fn is_launch_at_login() -> Result<bool, String> {
     crate::store::is_launch_at_login()
 }
 
@@ -468,7 +466,7 @@ fn sidecar_call(req: serde_json::Value, connect_ms: u64, read_ms: u64) -> Result
 
 /// 探测 Swift sidecar 健康状态（localhost:9876，TCP/JSON 行协议）。
 #[tauri::command]
-pub fn sidecar_status() -> SidecarStatus {
+pub async fn sidecar_status() -> SidecarStatus {
     match sidecar_call(json!({ "cmd": "bluetooth:status" }), 400, 800) {
         Ok(v) => SidecarStatus {
             running: true,
@@ -480,7 +478,7 @@ pub fn sidecar_status() -> SidecarStatus {
 
 /// 菜单栏图标管理状态：枚举 + 合并白名单 + 推送巡检策略。
 #[tauri::command]
-pub fn menubar_state(app: AppHandle) -> MenuBarState {
+pub async fn menubar_state(app: AppHandle) -> MenuBarState {
     let mut settings = crate::store::load_settings(&app);
 
     let resp = sidecar_call(json!({ "cmd": "menubar:list" }), 600, 8000);
@@ -542,7 +540,7 @@ pub fn menubar_state(app: AppHandle) -> MenuBarState {
 
 /// 点亮 / 收起某个菜单栏图标（更新白名单；巡检由 menubar_state 推送生效）。
 #[tauri::command]
-pub fn menubar_set_visible(app: AppHandle, id: String, show: bool) -> Result<(), String> {
+pub async fn menubar_set_visible(app: AppHandle, id: String, show: bool) -> Result<(), String> {
     let mut settings = crate::store::load_settings(&app);
     if show {
         if !settings.menubar_visible.contains(&id) {
@@ -556,7 +554,7 @@ pub fn menubar_set_visible(app: AppHandle, id: String, show: bool) -> Result<(),
 
 /// 菜单栏管理总开关（关闭 = 全部恢复显示并停止巡检）。
 #[tauri::command]
-pub fn menubar_set_managed(app: AppHandle, managed: bool) -> Result<(), String> {
+pub async fn menubar_set_managed(app: AppHandle, managed: bool) -> Result<(), String> {
     let mut settings = crate::store::load_settings(&app);
     settings.menubar_managed = managed;
     crate::store::save_settings(&app, &settings)

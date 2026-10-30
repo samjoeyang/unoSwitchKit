@@ -98,7 +98,7 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-white/40">v0.3.0</span>
+        <span className="text-[10px] text-white/40">v0.3.1</span>
       </div>
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
