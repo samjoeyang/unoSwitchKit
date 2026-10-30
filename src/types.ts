@@ -44,6 +44,12 @@ export interface SidecarStatus {
   bluetooth: boolean | null;
 }
 
+export interface BtDevice {
+  name: string;
+  address: string;
+  connected: boolean;
+}
+
 export interface MenuBarItemState {
   id: string;
   owner: string;

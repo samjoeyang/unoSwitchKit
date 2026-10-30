@@ -2,6 +2,18 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.3.0] - 2026-10-30
+
+### 新功能：蓝牙设备管理 + 退出按钮
+
+- **蓝牙设备列表 + 一键连接/断开**：面板新增「蓝牙设备」区，枚举全部已配对设备（名称/地址/连接状态），点选即可连接（守护侧轮询等待，最长 10s）或断开。实现走 macOS **系统框架 `IOBluetooth`**（Swift 守护新增 `bluetooth.swift`，非第三方 CLI）；协议新增 `bt:devices` / `bt:connect` / `bt:disconnect`，Rust 命令 `bt_devices` / `bt_connect` / `bt_disconnect`。首次使用会弹系统的「蓝牙使用」授权。无已配对设备或守护未运行时该区自动隐藏。
+- **退出按钮**：面板底栏新增「退出」，调用 `quit_app`（`app.exit(0)`）；守护进程独立运行不受影响。
+- 修复：连续两次 `vite build` 报 esbuild "Broker request timed out"，为残留 esbuild 进程所致，`pkill -f esbuild` 后恢复（环境问题，非代码）。
+
+### 验证
+
+- ✅ `swiftc` 守护编译通过（新增 `-framework IOBluetooth`）；✅ `cargo check` 零告警；✅ `npm run build` 通过。
+
 ## [0.2.0] - 2026-10-30
 
 ### 新功能：扩展开关与即时动作（仿同类工具面板，按可行性裁剪）

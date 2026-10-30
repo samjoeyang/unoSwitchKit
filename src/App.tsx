@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ToggleGrid, type ToggleKey } from "./components/ToggleGrid";
 import { ResourcePanel } from "./components/ResourcePanel";
 import { MenuBarSection } from "./components/MenuBarSection";
+import { BluetoothSection } from "./components/BluetoothSection";
 import { StatusDot } from "./components/StatusDot";
 import { api } from "./ipc";
 import type { ToggleStates } from "./types";
@@ -97,12 +98,13 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-white/40">v0.2.0</span>
+        <span className="text-[10px] text-white/40">v0.3.0</span>
       </div>
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
       <ResourcePanel />
       <MenuBarSection />
+      <BluetoothSection />
 
       <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-2">
         <label className="flex cursor-pointer items-center gap-2 text-[12px] text-white/70">
@@ -114,8 +116,22 @@ export default function App() {
           />
           开机自启
         </label>
-        <div className="flex items-center gap-1.5 text-[11px] text-white/50">
-          <StatusDot on={sidecar === true} /> 原生守护
+        <div className="flex items-center gap-3 text-[11px] text-white/50">
+          <span className="flex items-center gap-1.5">
+            <StatusDot on={sidecar === true} /> 原生守护
+          </span>
+          <button
+            onClick={async () => {
+              try {
+                await api.quitApp();
+              } catch {
+                /* ignore */
+              }
+            }}
+            className="transition hover:text-white/80"
+          >
+            退出
+          </button>
         </div>
       </div>
     </div>

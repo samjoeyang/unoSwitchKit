@@ -100,3 +100,11 @@ pub struct SidecarStatus {
     pub running: bool,
     pub bluetooth: Option<bool>,
 }
+
+/// 已配对蓝牙设备（来自 IOBluetooth，经 Swift 守护转发）。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct BtDevice {
+    pub name: String,
+    pub address: String,
+    pub connected: bool,
+}

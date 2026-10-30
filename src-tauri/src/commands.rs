@@ -308,6 +308,46 @@ pub fn toggle_stage_manager() -> Result<bool, String> {
     Ok(next)
 }
 
+// ---------------- 蓝牙设备（IOBluetooth，经 Swift 守护） ----------------
+
+/// 枚举已配对蓝牙设备。
+#[tauri::command]
+pub fn bt_devices() -> Result<Vec<BtDevice>, String> {
+    let v = sidecar_call(json!({ "cmd": "bt:devices" }), 500, 3000)?;
+    let devices = v.get("devices").cloned().unwrap_or_else(|| json!([]));
+    serde_json::from_value(devices).map_err(|e| e.to_string())
+}
+
+/// 一键连接（守护侧轮询等待，最长 10s）。
+#[tauri::command]
+pub fn bt_connect(address: String) -> Result<bool, String> {
+    let v = sidecar_call(
+        json!({ "cmd": "bt:connect", "address": address }),
+        500,
+        15000,
+    )?;
+    Ok(v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false))
+}
+
+/// 断开连接。
+#[tauri::command]
+pub fn bt_disconnect(address: String) -> Result<bool, String> {
+    let v = sidecar_call(
+        json!({ "cmd": "bt:disconnect", "address": address }),
+        500,
+        5000,
+    )?;
+    Ok(v.get("ok").and_then(|x| x.as_bool()).unwrap_or(false))
+}
+
+// ---------------- 应用退出 ----------------
+
+/// 退出 SwitchKit（守护进程独立运行，不受影响）。
+#[tauri::command]
+pub fn quit_app(app: AppHandle) {
+    app.exit(0);
+}
+
 // ---------------- 即时动作 ----------------
 
 /// 锁定屏幕：CGSession -suspend（Monterey 可用），失败回退熄屏。

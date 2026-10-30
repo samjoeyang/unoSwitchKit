@@ -69,6 +69,15 @@ class Connection {
                 "app": NSWorkspace.shared.frontmostApplication?
                     .localizedName ?? "",
             ]
+        case "bt:devices":
+            resp = ["cmd": cmd, "devices": BTManager.pairedDevices()]
+        case "bt:connect":
+            // 连接为异步 + 10s 轮询，同步阻塞本连接直至有结论
+            let ok = BTManager.connect(address: obj["address"] as? String ?? "")
+            resp = ["cmd": cmd, "ok": ok]
+        case "bt:disconnect":
+            let ok = BTManager.disconnect(address: obj["address"] as? String ?? "")
+            resp = ["cmd": cmd, "ok": ok]
         case "menubar:list":
             let items = MenuBarManager.shared.listItems()
             resp = [

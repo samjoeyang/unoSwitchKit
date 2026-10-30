@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  BtDevice,
   CachePreview,
   MemoryComparison,
   MemoryStat,
@@ -34,6 +35,10 @@ export const api = {
     invoke<void>("set_launch_at_login", { enabled }),
   isLaunchAtLogin: () => invoke<boolean>("is_launch_at_login"),
   sidecarStatus: () => invoke<SidecarStatus>("sidecar_status"),
+  btDevices: () => invoke<BtDevice[]>("bt_devices"),
+  btConnect: (address: string) => invoke<boolean>("bt_connect", { address }),
+  btDisconnect: (address: string) => invoke<boolean>("bt_disconnect", { address }),
+  quitApp: () => invoke<void>("quit_app"),
   menubarState: () => invoke<MenuBarState>("menubar_state"),
   menubarSetVisible: (id: string, show: boolean) =>
     invoke<void>("menubar_set_visible", { id, show }),
