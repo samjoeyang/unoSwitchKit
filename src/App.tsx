@@ -74,6 +74,19 @@ export default function App() {
     };
   }, []);
 
+  // 设置面板展开在底栏上方，展开后滚到底部，保证面板与底栏都在可视区内
+  useEffect(() => {
+    if (!showSettings) return;
+    const el = document.getElementById("root");
+    if (!el) return;
+    // 设置面板内的 Key 数量是异步读取的，布局会二次变化，故分两次贴底
+    const stick = () => {
+      el.scrollTop = el.scrollHeight;
+    };
+    const timers = [60, 260].map((ms) => window.setTimeout(stick, ms));
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, [showSettings]);
+
   async function onToggle(key: ToggleKey) {
     setBusy(key);
     try {
