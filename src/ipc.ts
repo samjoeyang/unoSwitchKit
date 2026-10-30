@@ -4,7 +4,6 @@ import type {
   CachePreview,
   MemoryComparison,
   MemoryStat,
-  MenuBarState,
   Settings,
   SidecarStatus,
   ToggleStates,
@@ -40,8 +39,5 @@ export const api = {
   btConnect: (address: string) => invoke<boolean>("bt_connect", { address }),
   btDisconnect: (address: string) => invoke<boolean>("bt_disconnect", { address }),
   quitApp: () => invoke<void>("quit_app"),
-  menubarState: () => invoke<MenuBarState>("menubar_state"),
-  menubarSetCollapsed: (collapsed: boolean) =>
-    invoke<boolean>("menubar_set_collapsed", { collapsed }),
   getUpdateConfig: () => invoke<UpdateConfig>("get_update_config"),
 };

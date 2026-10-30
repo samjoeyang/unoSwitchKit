@@ -5,7 +5,6 @@
 // 运行： ./switchkit-daemon   （随 Tauri 打包为 sidecar，自动拉起）
 //
 // 职责（承载纯 Web 无法完成的原生能力）：
-//   - 菜单栏图标收纳：箭头 + 分隔条状态项（见 menubar.swift）
 //   - 蓝牙设备列表/连接：IOBluetooth；蓝牙开关：blueutil（需 brew install）
 //
 // 协议：127.0.0.1:9876，换行分隔的 JSON 行（详见 bridge.swift 的协议常量）。
@@ -59,9 +58,4 @@ listener.start(queue: .main)
 // 先初始化 NSApplication（NSStatusItem 依赖窗口服务器连接，顺序不能反）
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-// 菜单栏收纳（箭头 + 分隔条状态项）
-HideBarController.shared.start()
-// 辅助功能授权引导（仅首次弹一次系统设置引导）
-MenuBarManager.shared.requestTrustOnce()
-// 状态项按钮点击需要 AppKit 事件循环； accessory 策略保证不占 Dock
 app.run()

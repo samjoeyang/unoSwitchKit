@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { ToggleGrid, type ToggleKey } from "./components/ToggleGrid";
 import { ResourcePanel } from "./components/ResourcePanel";
-import { MenuBarSection } from "./components/MenuBarSection";
 import { BluetoothSection } from "./components/BluetoothSection";
 import { StatusDot } from "./components/StatusDot";
 import { api } from "./ipc";
@@ -128,12 +127,11 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-white/40">v0.3.4</span>
+        <span className="text-[10px] text-white/40">v0.3.5</span>
       </div>
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
       <ResourcePanel />
-      <MenuBarSection />
       <BluetoothSection />
 
       <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-2">

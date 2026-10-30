@@ -56,31 +56,8 @@ pub struct Settings {
     pub toggle_order: Vec<String>,
     pub cache_whitelist_extra: Vec<String>,
     pub last_release: Option<MemoryComparison>,
-    /// 菜单栏收纳：是否处于收起状态（守护进程重启后恢复用）。
-    #[serde(default)]
-    pub menubar_collapsed: bool,
 }
 
-/// 面板菜单栏收纳区的状态。
-#[derive(Serialize, Deserialize, Clone)]
-pub struct MenuBarItemState {
-    pub id: String,
-    pub owner: String,
-    pub title: String,
-    /// 当前是否实际可见（AX 读取；辅助功能未授权时无意义）。
-    pub visible: bool,
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub struct MenuBarState {
-    /// 守护进程是否已获辅助功能授权。
-    pub ax_trusted: bool,
-    /// 守护进程是否在运行。
-    pub running: bool,
-    /// 当前是否处于收起状态。
-    pub collapsed: bool,
-    pub items: Vec<MenuBarItemState>,
-}
 
 /// Swift sidecar 健康状态。
 #[derive(Serialize, Deserialize, Clone)]

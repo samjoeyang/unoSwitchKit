@@ -19,7 +19,7 @@ pub struct AppState {
     pub screen_cleaned: Mutex<bool>,
 }
 
-/// 拉起 Swift 守护进程（菜单栏图标管理 / 蓝牙承载），已在运行则跳过。
+/// 拉起 Swift 守护进程（蓝牙承载），已在运行则跳过。
 fn spawn_sidecar() {
     use std::net::TcpStream;
     use std::time::Duration;
@@ -130,8 +130,6 @@ fn main() {
             commands::bt_connect,
             commands::bt_disconnect,
             commands::quit_app,
-            commands::menubar_state,
-            commands::menubar_set_collapsed,
             commands::get_update_config,
         ]);
 

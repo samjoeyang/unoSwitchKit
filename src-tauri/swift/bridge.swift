@@ -79,38 +79,6 @@ class Connection {
         case "bt:disconnect":
             let ok = BTManager.disconnect(address: obj["address"] as? String ?? "")
             resp = ["cmd": cmd, "ok": ok]
-        case "menubar:list":
-            let items = MenuBarManager.shared.listItems()
-            resp = [
-                "cmd": cmd,
-                "axTrusted": MenuBarManager.shared.isTrusted,
-                "collapsed": HideBarController.shared.isCollapsed,
-                "items": items.map {
-                    [
-                        "id": $0.id, "owner": $0.owner, "title": $0.title,
-                        "x": $0.x, "y": $0.y, "visible": $0.visible,
-                    ] as [String: Any]
-                },
-            ]
-        case "hidebar:state":
-            resp = [
-                "cmd": cmd,
-                "collapsed": HideBarController.shared.isCollapsed,
-                "freshStart": HideBarController.shared.consumeFreshStart,
-            ]
-        case "hidebar:set":
-            let collapsed = obj["collapsed"] as? Bool ?? false
-            HideBarController.shared.setCollapsed(collapsed)
-            resp = [
-                "cmd": cmd, "ok": true,
-                "collapsed": HideBarController.shared.isCollapsed,
-            ]
-        case "hidebar:autoplace":
-            let excludeIds = obj["excludeIds"] as? [String] ?? []
-            let excludeOwners = obj["excludeOwners"] as? [String] ?? []
-            let ok = HideBarController.shared.autoplace(
-                excludeIds: excludeIds, excludeOwners: excludeOwners)
-            resp = ["cmd": cmd, "ok": ok]
         default:
             resp = ["error": "unknown command: \(cmd)"]
         }

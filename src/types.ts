@@ -50,20 +50,6 @@ export interface BtDevice {
   connected: boolean;
 }
 
-export interface MenuBarItemState {
-  id: string;
-  owner: string;
-  title: string;
-  visible: boolean;
-}
-
-export interface MenuBarState {
-  ax_trusted: boolean;
-  running: boolean;
-  collapsed: boolean;
-  items: MenuBarItemState[];
-}
-
 export interface UpdateConfig {
   enabled: boolean;
   current_version: string;

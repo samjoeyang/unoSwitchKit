@@ -42,24 +42,24 @@ if [ "$MODE" = "universal" ]; then
   rm -f src-tauri/binaries/switchkit-daemon-{aarch64,x86_64,universal}-apple-darwin
   # arm64 切片：交叉编译需显式部署目标（Apple Silicon 最低 11.0）
   (cd src-tauri/swift && swiftc -O -target arm64-apple-macosx11.0 \
-    -framework AppKit -framework ApplicationServices \
+    -framework AppKit \
     -framework Network -framework IOBluetooth \
-    main.swift bridge.swift menubar.swift bluetooth.swift \
+    main.swift bridge.swift bluetooth.swift \
     -o "../binaries/switchkit-daemon-aarch64-apple-darwin")
   # x86_64 切片：沿用主机默认 target（macOS 12），不传 -target
   (cd src-tauri/swift && swiftc -O \
-    -framework AppKit -framework ApplicationServices \
+    -framework AppKit \
     -framework Network -framework IOBluetooth \
-    main.swift bridge.swift menubar.swift bluetooth.swift \
+    main.swift bridge.swift bluetooth.swift \
     -o "../binaries/switchkit-daemon-x86_64-apple-darwin")
   lipo -create src-tauri/binaries/switchkit-daemon-aarch64-apple-darwin \
     src-tauri/binaries/switchkit-daemon-x86_64-apple-darwin \
     -output "$DAEMON_BIN"
 else
   (cd src-tauri/swift && swiftc -O \
-    -framework AppKit -framework ApplicationServices \
+    -framework AppKit \
     -framework Network -framework IOBluetooth \
-    main.swift bridge.swift menubar.swift bluetooth.swift \
+    main.swift bridge.swift bluetooth.swift \
     -o "../binaries/switchkit-daemon-$TARGET")
 fi
 
