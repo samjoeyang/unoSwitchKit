@@ -2,6 +2,15 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.3.3] - 2026-10-30
+
+### 新增：发布构建脚本与签名分发策略
+
+- **`scripts/build-release.sh`**：一键发布构建——Swift 守护编译（支持 `--universal` 双架构 lipo 合并）→ 签名身份自动检测（钥匙串找 Developer ID 证书，可用 `APPLE_SIGNING_IDENTITY` 显式指定）→ `tauri build` → 产物签名收尾与校验（守护进程必须已进包且已签名，否则构建失败）。
+- **签名降级策略**：无证书时自动 ad-hoc 签名（`codesign -s -`），守护进程随包签名不会被系统静默拦截；Gatekeeper 弹「未验证开发者」，用户右键 → 打开（macOS 13+ 走系统设置）。有证书且有公证凭据时走 Tauri 自动 notarize + staple。
+- **修复发布包守护进程缺失**：`tauri.conf.json` 此前未配置 `externalBin`，`tauri build` 产物中**不含 Swift 守护进程**（release 下 `exe.parent()/switchkit-daemon` 找不到文件，蓝牙/菜单栏收纳全失效，且用户机器上无 `CARGO_MANIFEST_DIR` 兜底路径）。已加 `"externalBin": ["binaries/switchkit-daemon"]`，守护随包打进 `Contents/MacOS/` 并参与统一签名。
+- 文档：构建指南新增 §3.1 分发签名策略、§6 公证分发完整流程（证书创建/凭证存储/环境变量/验证/手动公证）。
+
 ## [0.3.2] - 2026-10-30
 
 ### 修复：菜单栏图标收纳点击无效果（方案重构：AX 移动 → 分隔条撑开）

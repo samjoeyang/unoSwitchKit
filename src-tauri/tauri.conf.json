@@ -17,6 +17,9 @@
     "active": true,
     "targets": "all",
     "category": "Utilities",
+    "externalBin": [
+      "binaries/switchkit-daemon"
+    ],
     "shortDescription": "菜单栏快捷开关与系统资源释放",
     "icon": [
       "icons/32x32.png",

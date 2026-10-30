@@ -59,11 +59,11 @@ class Connection {
         case "ping":
             resp = ["ok": true]
         case "bluetooth:status":
-            resp = ["cmd": "bluetooth:status", "power": bluetoothPower()]
+            resp = ["cmd": "bluetooth:status", "power": bluetoothPower() as Any]
         case "bluetooth:toggle":
             let on = !(bluetoothPower() ?? false)
             _ = shell("blueutil", ["--power", on ? "on" : "off"])
-            resp = ["cmd": "bluetooth:toggle", "power": bluetoothPower()]
+            resp = ["cmd": "bluetooth:toggle", "power": bluetoothPower() as Any]
         case "frontmostApp":
             resp = [
                 "cmd": "frontmostApp",
