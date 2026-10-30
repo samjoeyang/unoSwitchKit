@@ -79,7 +79,7 @@ fi
 # 关键：无证书时必须 unset 而不是设为空串——Tauri 见到该变量（即使为空）
 # 就会进入签名流程，用 "" 当 identity 去 codesign 必然失败。
 if [ -n "$IDENTITY" ]; then
-  echo "   找到 Developer ID 证书：$IDENTITY（将正式签名）"
+  echo "   找到 Developer ID 证书：${IDENTITY}（将正式签名）"
   export APPLE_SIGNING_IDENTITY="$IDENTITY"
   if [ -z "${APPLE_CERTIFICATE:-}" ] && [ -z "${APPLE_ID:-}" ]; then
     echo "   ⚠️ 未配置公证凭据（APPLE_CERTIFICATE 或 APPLE_ID/APPLE_PASSWORD/APPLE_TEAM_ID）"
@@ -166,7 +166,7 @@ codesign -dv "$DAEMON_IN_APP" 2>&1 | head -2 || true
 if [ "${DMG_OK:-0}" = 0 ]; then
   rm -f "$ZIP"
   ( cd "${BUNDLE_DIR}/macos" && zip -r -y "SwitchKit-adhoc.zip" "SwitchKit.app" )
-  echo "   分发 zip：$ZIP（解压后为 SwitchKit.app，右键 → 打开）"
+  echo "   分发 zip：${ZIP}（解压后为 SwitchKit.app，右键 → 打开）"
 fi
 
 echo ""
