@@ -55,7 +55,7 @@ fn spawn_sidecar() {
 }
 
 fn main() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         // 单实例：launchd 拉起或手动双开时，新进程立即退出并唤起已有面板，
         // 避免「开机自启后菜单栏出现两个图标」。
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -132,7 +132,15 @@ fn main() {
             commands::quit_app,
             commands::menubar_state,
             commands::menubar_set_collapsed,
-        ])
+            commands::get_update_config,
+        ]);
+
+    // 在线更新：插件始终注册；更新服务在 tauri.conf.json `plugins.updater`
+    // 中配置（当前 endpoints 为空 → 暂无线上地址，检查更新返回「已是最新」）。
+    // 后续接入服务器时把 endpoints 填上 manifest URL 即可，无需改 Rust 代码。
+    builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
+    builder
         .run(tauri::generate_context!())
         .expect("error while running SwitchKit");
 }

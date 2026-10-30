@@ -8,6 +8,7 @@ import type {
   Settings,
   SidecarStatus,
   ToggleStates,
+  UpdateConfig,
 } from "./types";
 
 export const api = {
@@ -42,4 +43,5 @@ export const api = {
   menubarState: () => invoke<MenuBarState>("menubar_state"),
   menubarSetCollapsed: (collapsed: boolean) =>
     invoke<boolean>("menubar_set_collapsed", { collapsed }),
+  getUpdateConfig: () => invoke<UpdateConfig>("get_update_config"),
 };

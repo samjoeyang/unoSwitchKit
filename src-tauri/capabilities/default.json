@@ -4,6 +4,8 @@
   "description": "SwitchKit 默认权限（仅前端 invoke 自定义命令）",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "updater:default",
+    "process:default"
   ]
 }

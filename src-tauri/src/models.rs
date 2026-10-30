@@ -96,3 +96,12 @@ pub struct BtDevice {
     pub address: String,
     pub connected: bool,
 }
+
+/// 在线更新能力配置（前端据此决定「检查更新」按钮是否可用）。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct UpdateConfig {
+    /// 是否已在构建期配置更新服务（SWITCHKIT_UPDATE_ENDPOINTS + PUBKEY）。
+    pub enabled: bool,
+    /// 当前版本号（来自 tauri.conf.json）。
+    pub current_version: String,
+}

@@ -63,3 +63,8 @@ export interface MenuBarState {
   collapsed: boolean;
   items: MenuBarItemState[];
 }
+
+export interface UpdateConfig {
+  enabled: boolean;
+  current_version: string;
+}

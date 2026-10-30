@@ -5,6 +5,7 @@ import { MenuBarSection } from "./components/MenuBarSection";
 import { BluetoothSection } from "./components/BluetoothSection";
 import { StatusDot } from "./components/StatusDot";
 import { api } from "./ipc";
+import { checkAndInstall } from "./update";
 import type { ToggleStates } from "./types";
 
 export default function App() {
@@ -12,6 +13,9 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [launch, setLaunch] = useState(false);
   const [sidecar, setSidecar] = useState<boolean | null>(null);
+  const [updateEnabled, setUpdateEnabled] = useState(false);
+  const [updating, setUpdating] = useState(false);
+  const [updateMsg, setUpdateMsg] = useState<string | null>(null);
 
   async function refresh() {
     try {
@@ -35,11 +39,20 @@ export default function App() {
       setSidecar(null);
     }
   }
+  async function loadUpdateConfig() {
+    try {
+      const cfg = await api.getUpdateConfig();
+      setUpdateEnabled(cfg.enabled);
+    } catch {
+      setUpdateEnabled(false);
+    }
+  }
 
   useEffect(() => {
     refresh();
     loadLaunch();
     loadSidecar();
+    loadUpdateConfig();
     const t = setInterval(loadSidecar, 5000);
     // 面板每次重新显示时刷新（避免托盘弹出后显示过期状态，如废纸篓计数）
     const onVis = () => {
@@ -85,6 +98,23 @@ export default function App() {
     }
   }
 
+  async function onCheckUpdate() {
+    if (!updateEnabled) {
+      setUpdateMsg("更新服务尚未配置（暂未提供线上地址）");
+      return;
+    }
+    setUpdating(true);
+    setUpdateMsg("正在检查更新…");
+    try {
+      const r = await checkAndInstall();
+      setUpdateMsg(r.message);
+    } catch (e) {
+      setUpdateMsg(`更新失败：${e}`);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
   return (
     <div className="flex min-h-full w-full flex-col rounded-2xl border border-white/10 bg-zinc-900/70 p-3 text-white shadow-2xl backdrop-blur-xl">
       <div className="mb-2 flex items-center justify-between">
@@ -98,7 +128,7 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-white/40">v0.3.2</span>
+        <span className="text-[10px] text-white/40">v0.3.4</span>
       </div>
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
@@ -133,6 +163,21 @@ export default function App() {
             退出
           </button>
         </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
+        <button
+          onClick={onCheckUpdate}
+          disabled={updating}
+          className="rounded px-2 py-0.5 text-[11px] text-white/60 transition hover:bg-white/10 hover:text-white/90 disabled:opacity-40"
+        >
+          {updating ? "检查中…" : "检查更新"}
+        </button>
+        {updateMsg && (
+          <span className="max-w-[180px] truncate text-right text-[10px] text-white/40" title={updateMsg}>
+            {updateMsg}
+          </span>
+        )}
       </div>
     </div>
   );

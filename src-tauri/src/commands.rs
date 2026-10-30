@@ -557,3 +557,19 @@ pub async fn menubar_set_collapsed(app: AppHandle, collapsed: bool) -> Result<bo
     crate::store::save_settings(&app, &settings)?;
     Ok(applied)
 }
+
+// ---------------- 在线更新 ----------------
+
+/// 返回更新能力配置：是否已在构建期配置了更新服务（当前无线上地址 → 默认禁用）。
+/// enabled 由编译期环境变量 SWITCHKIT_UPDATE_ENDPOINTS 决定：build-release.sh 在
+/// 接入真实更新服务器时会导出该变量，option_env! 将其固化进二进制。
+#[tauri::command]
+pub fn get_update_config(app: AppHandle) -> UpdateConfig {
+    let enabled = option_env!("SWITCHKIT_UPDATE_ENDPOINTS")
+        .map(|v| !v.trim().is_empty())
+        .unwrap_or(false);
+    UpdateConfig {
+        enabled,
+        current_version: app.package_info().version.to_string(),
+    }
+}

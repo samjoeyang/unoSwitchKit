@@ -22,6 +22,7 @@ Mac 菜单栏快捷开关 + 系统资源释放工具。macOS 专属、常驻菜�
 - **蓝牙设备**：列出已配对设备，一键连接 / 断开（系统框架 IOBluetooth，经 Swift 守护，无第三方依赖）。
 - **资源释放（FR-3 P0）**：释放内存（`purge`，需 root）、刷新 DNS（`dscacheutil`/`mDNSResponder`，需 root）、清理用户缓存（白名单 + 预览 + 二次确认）。
 - **开机自启（FR-4）**：注册/移除 `~/Library/LaunchAgents/com.switchkit.app.plist`（单实例保护，不会出现双图标）。
+- **在线更新**：基于 `tauri-plugin-updater`，面板「检查更新」按钮可一键下载安装并重启。当前未配置更新服务器，按钮显示「更新服务尚未配置」；接入服务器只需在构建期导出 `SWITCHKIT_UPDATE_ENDPOINTS`（详见构建指南 §6）。
 - **状态实时反映（FR-7）**：面板打开即读取系统真实状态，避免与系统设置不同步。
 - **Swift sidecar（M4）**：本地 `127.0.0.1:9876` 承载菜单栏图标收纳（箭头+分隔条）、蓝牙设备管理与开关。
 

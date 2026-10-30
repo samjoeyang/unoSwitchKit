@@ -2,6 +2,21 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.3.4] - 2026-10-30
+
+### 新增：在线更新能力（graceful，当前无线上地址默认禁用）
+
+- **`tauri-plugin-updater` + `tauri-plugin-process`**：接入 Tauri 标准更新器。面板底部新增「检查更新」按钮，有更新时自动下载安装并重启。
+- **`get_update_config` 命令 + `UpdateConfig`**：告知前端更新服务是否已配置（编译期 `SWITCHKIT_UPDATE_ENDPOINTS` 决定，`option_env!` 固化进二进制）。当前未配置 → 按钮显示「更新服务尚未配置（暂未提供线上地址）」，不报错。
+- **发布密钥**：`tauri signer generate` 生成 Ed25519 密钥对；公钥已写入 `tauri.conf.json` `plugins.updater.pubkey`，私钥存于 `~/.switchkit-updater-secret.key`（不入库）。
+- **构建脚本联网开关**：`scripts/build-release.sh` 现支持在构建期导出 `SWITCHKIT_UPDATE_ENDPOINTS` 时，自动把 manifest URL 注入 `tauri.conf.json` 的 `endpoints` 并还原，无需改代码即可启用 OTA 更新。
+- **开机自启**：复用既有 `LaunchAgent` 机制（勾选即写 `~/Library/LaunchAgents/com.switchkit.app.plist`，面板复选框已存在），本次仅做保留确认。
+
+### 验证
+
+- ✅ `cargo check` 零告警；✅ `npm run build` 通过（含 `@tauri-apps/plugin-updater` / `plugin-process`）。
+- ⏳ 通用包（`--universal`）构建中；收起/展开、更新开关等实机交互待装机验证。
+
 ## [0.3.3] - 2026-10-30
 
 ### 新增：发布构建脚本与签名分发策略
