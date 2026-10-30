@@ -21,9 +21,76 @@ Mac 菜单栏快捷开关 + 系统资源释放工具。macOS 专属、常驻菜�
 - **蓝牙设备**：列出已配对设备，一键连接 / 断开（系统框架 IOBluetooth，经 Swift 守护，无第三方依赖）。
 - **资源释放（FR-3 P0）**：释放内存（`purge`，需 root）、刷新 DNS（`dscacheutil`/`mDNSResponder`，需 root）、清理用户缓存（白名单 + 预览 + 二次确认）。
 - **开机自启（FR-4）**：注册/移除 `~/Library/LaunchAgents/com.switchkit.app.plist`（单实例保护，不会出现双图标）。
-- **在线更新**：基于 `tauri-plugin-updater`，面板「检查更新」按钮可一键下载安装并重启。当前未配置更新服务器，按钮显示「更新服务尚未配置」；接入服务器只需在构建期导出 `SWITCHKIT_UPDATE_ENDPOINTS`（详见构建指南 §6）。
+- **在线更新**：基于 `tauri-plugin-updater`，面板「检查更新」按钮可一键下载安装并重启。当前未配置更新服务器，按钮显示「更新服务尚未配置」；接入服务器只需在构建期导出 `SWITCHKIT_UPDATE_ENDPOINTS`（详见构建指南 §6.6）。
+- **模型余额（FR-8）**：多平台、多账号混排展示余额，60 秒自动刷新。支持 DeepSeek、Kimi（国内/国际）、智谱 GLM、阶跃星辰、Novita AI、OpenRouter、302.AI、AiHubMix，以及中转站自定义（OpenAI 计费接口 / new-api user quota）。可选 HTTP 代理，面板不展示明文 Key。
 - **状态实时反映（FR-7）**：面板打开即读取系统真实状态，避免与系统设置不同步。
 - **Swift sidecar（M4）**：本地 `127.0.0.1:9876` 承载蓝牙设备管理与开关。
+
+## 安装
+
+### 系统要求
+
+- macOS 10.13+（台前调度开关仅 macOS 13+ 显示，其余功能不受影响）
+- Apple Silicon / Intel 均可，分发包为 universal 二进制
+
+### 从分发包安装
+
+1. **解压**。若拿到的是分卷（`*.z01`、`*.z02` … `*.zip`），先合并再解压：
+
+   ```bash
+   zip -s 0 SwitchKit-v0.4.0-universal.zip --out SwitchKit-full.zip
+   unzip SwitchKit-full.zip     # 得到 SwitchKit.app
+   ```
+
+   单卷直接 `unzip SwitchKit-*.zip`。不要用第三方解压工具解分卷，容易丢 `.app` 包裹层。
+
+2. **拖入应用程序**：把 `SwitchKit.app` 拖到 `/Applications`（不要在压缩包内直接双击运行）。
+
+3. **首次启动**。分发包为 ad-hoc 签名、未公证，Gatekeeper 会拦截：
+
+   - 首选：Finder 里**右键 `SwitchKit.app` → 打开 → 再点「打开」**（只需一次）
+   - macOS 15+ 若提示「已损坏，无法打开」，先移除隔离属性：
+
+     ```bash
+     xattr -dr com.apple.quarantine /Applications/SwitchKit.app
+     ```
+
+   - 或：系统设置 → 隐私与安全性 → 底部「仍要打开」
+
+4. 启动后**无 Dock 图标**，图标常驻菜单栏；点击菜单栏图标展开面板。
+
+### 首次运行需授予的权限
+
+| 权限 | 授予位置 | 用途 | 不授予的后果 |
+|---|---|---|---|
+| 自动化（Finder） | 系统设置 → 隐私与安全性 → 自动化 | 清空废纸篓、关闭所有应用 | 这两个操作报错 |
+| 完全磁盘访问权限 | 隐私与安全性 → 完全磁盘访问权限 | 清理 Safari 等受 TCC 保护的缓存 | 该目录被跳过，其余目录照常清理 |
+| 蓝牙 | 首次扫描设备时系统弹窗 | 列出 / 连接蓝牙设备 | 蓝牙模块列表为空 |
+| 管理员密码 | 操作时系统密码框 | 释放内存（`purge`）、刷新 DNS | 每次操作都需输入密码（凭据不落盘） |
+
+完全磁盘访问需要**授权后重启 App**才生效。
+
+> 可选依赖：蓝牙设备列表 / 连接走系统 `IOBluetooth`，无需额外安装；只有「蓝牙整机开关」需要 `brew install blueutil`。
+
+### 开机自启
+
+设置（齿轮）→ 开机启动。开启后写入 `~/Library/LaunchAgents/com.switchkit.app.plist`，自带单实例保护，不会出现双图标。
+
+### 在线更新
+
+设置 → 检查更新。若构建时未配置更新服务器，会提示「更新服务尚未配置」；配置方法见 [docs/构建指南.md](docs/构建指南.md) §6.6。
+
+### 卸载
+
+```bash
+# 1. 先在 App 内关闭「开机启动」，然后退出 App
+launchctl unload ~/Library/LaunchAgents/com.switchkit.app.plist 2>/dev/null
+rm -f ~/Library/LaunchAgents/com.switchkit.app.plist
+# 2. 删除应用
+rm -rf /Applications/SwitchKit.app
+# 3. 可选：清除配置与已保存的 Key
+rm -rf ~/Library/Application\ Support/com.switchkit.app
+```
 
 ## 目录结构
 
