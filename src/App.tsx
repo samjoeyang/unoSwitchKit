@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { ToggleGrid, type ToggleKey } from "./components/ToggleGrid";
 import { ResourcePanel } from "./components/ResourcePanel";
 import { BluetoothSection } from "./components/BluetoothSection";
-import { DeepSeekSection } from "./components/DeepSeekSection";
+import { BalanceSection } from "./components/BalanceSection";
 import { SettingsSection } from "./components/SettingsSection";
 import { StatusDot } from "./components/StatusDot";
 import { api } from "./ipc";
@@ -10,7 +10,7 @@ import { checkAndInstall } from "./update";
 import type { ToggleStates } from "./types";
 
 /// 应用版本（设置面板「检查更新」中展示）
-const APP_VERSION = "0.3.9";
+const APP_VERSION = "0.4.0";
 
 export default function App() {
   const [states, setStates] = useState<ToggleStates | null>(null);
@@ -21,8 +21,8 @@ export default function App() {
   const [updating, setUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
-  // DeepSeek Key 变动版本号：设置页新增 / 余额区删除后递增，驱动双方同步
-  const [dsVersion, setDsVersion] = useState(0);
+  // 余额账号变动版本号：设置页新增 / 余额区删除后递增，驱动双方同步
+  const [balanceVersion, setBalanceVersion] = useState(0);
   // 设置项操作提示（alert 在 WKWebView 中被禁用，改用面板内提示）
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -158,9 +158,9 @@ export default function App() {
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
       <ResourcePanel />
       <BluetoothSection />
-      <DeepSeekSection
-        version={dsVersion}
-        onChanged={() => setDsVersion((v) => v + 1)}
+      <BalanceSection
+        version={balanceVersion}
+        onChanged={() => setBalanceVersion((v) => v + 1)}
       />
 
       {showSettings && (
@@ -171,9 +171,9 @@ export default function App() {
           updating={updating}
           updateMsg={updateMsg}
           onCheckUpdate={onCheckUpdate}
-          dsVersion={dsVersion}
+          balanceVersion={balanceVersion}
           notice={notice}
-          onDeepSeekChanged={() => setDsVersion((v) => v + 1)}
+          onBalanceChanged={() => setBalanceVersion((v) => v + 1)}
           onClose={() => {
             setShowSettings(false);
             setNotice(null);

@@ -71,36 +71,55 @@ pub struct Settings {
     pub toggle_order: Vec<String>,
     pub cache_whitelist_extra: Vec<String>,
     pub last_release: Option<MemoryComparison>,
-    /// DeepSeek API Key 列表（支持多个）。旧配置文件无此字段时按空列表处理。
+    /// 各厂商 API Key 列表（支持多个、可混合厂商）。
+    /// 字段别名兼容旧配置里的 `deepseek_keys`（旧结构无 provider 字段，读入后按 deepseek 处理）。
+    #[serde(default, alias = "deepseek_keys")]
+    pub provider_keys: Vec<ProviderKey>,
+    /// 余额查询用的 HTTP 代理（如 http://127.0.0.1:7897），留空直连。
+    /// 部分境外站点在境内直连会被 TLS 重置，需要走本地代理。
     #[serde(default)]
-    pub deepseek_keys: Vec<DeepSeekKey>,
+    pub http_proxy: String,
 }
 
-/// 一个 DeepSeek API Key 配置。
+/// 一个模型平台 API Key 配置。
 #[derive(Serialize, Deserialize, Clone, Default)]
-pub struct DeepSeekKey {
+pub struct ProviderKey {
     pub id: String,
+    /// 厂商标识：deepseek / kimi / kimi_intl / zhipu / stepfun / novita /
+    /// openrouter / ai302 / aihubmix / custom。空字符串按 deepseek 处理（旧配置兼容）。
+    #[serde(default)]
+    pub provider: String,
     pub label: String,
     pub api_key: String,
+    /// 仅 custom（中转站）使用：站点地址，如 https://api.xxx.com
+    #[serde(default)]
+    pub base_url: String,
 }
 
-/// 单个币种的余额明细（来自 DeepSeek /user/balance）。
+/// 一条余额明细（各厂商字段归一化后的展示项）。
 #[derive(Serialize, Deserialize, Clone)]
-pub struct DeepSeekBalanceInfo {
+pub struct BalanceLine {
+    /// 展示名，如「余额」「赠送」「已用」
+    pub label: String,
+    /// 已格式化的金额字符串
+    pub amount: String,
+    /// CNY / USD / 空
     pub currency: String,
-    pub total_balance: String,
-    pub granted_balance: String,
-    pub topped_up_balance: String,
+    /// 是否主金额（前端放大显示）
+    pub primary: bool,
 }
 
 /// 某个 Key 的余额查询结果（含错误信息，便于前端逐条展示）。
 #[derive(Serialize, Deserialize, Clone)]
-pub struct DeepSeekAccountBalance {
+pub struct AccountBalance {
     pub id: String,
+    pub provider: String,
     pub label: String,
     pub ok: bool,
+    /// 账户是否可用（余额不足时部分厂商会返回 false）
     pub is_available: bool,
-    pub balances: Vec<DeepSeekBalanceInfo>,
+    /// 展开后的明细行；第一行 primary 即主余额
+    pub balances: Vec<BalanceLine>,
     pub error: Option<String>,
 }
 
@@ -127,4 +146,28 @@ pub struct UpdateConfig {
     pub enabled: bool,
     /// 当前版本号（来自 tauri.conf.json）。
     pub current_version: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Settings;
+
+    /// 旧版配置里的 `deepseek_keys` 需能读入新的 `provider_keys`（provider 留空 → 视为 deepseek）。
+    #[test]
+    fn legacy_deepseek_keys_are_migrated() {
+        let json = r#"{
+            "toggle_order": [],
+            "cache_whitelist_extra": [],
+            "last_release": null,
+            "deepseek_keys": [
+                { "id": "1", "label": "主账号", "api_key": "sk-xxx" }
+            ]
+        }"#;
+        let s: Settings = serde_json::from_str(json).expect("旧配置应能解析");
+        assert_eq!(s.provider_keys.len(), 1);
+        assert_eq!(s.provider_keys[0].provider, "");
+        assert_eq!(s.provider_keys[0].label, "主账号");
+        assert_eq!(s.provider_keys[0].api_key, "sk-xxx");
+        assert_eq!(s.provider_keys[0].base_url, "");
+    }
 }

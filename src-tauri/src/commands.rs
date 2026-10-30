@@ -424,12 +424,14 @@ pub async fn clear_cache() -> CacheClearResult {
     crate::cache_whitelist::clear()
 }
 
-/// 查询所有已配置 DeepSeek Key 的余额（无 Key 时返回空列表）。
+/// 查询所有已配置 Key 的余额（无 Key 时返回空列表）。
 /// curl 为阻塞调用，放到 blocking 线程池，避免占用 async runtime 工作线程。
 #[tauri::command]
-pub async fn get_deepseek_balances(app: AppHandle) -> Vec<DeepSeekAccountBalance> {
-    let keys = crate::store::load_settings(&app).deepseek_keys;
-    tauri::async_runtime::spawn_blocking(move || crate::deepseek::fetch_all(&keys))
+pub async fn get_balances(app: AppHandle) -> Vec<AccountBalance> {
+    let s = crate::store::load_settings(&app);
+    let keys = s.provider_keys;
+    let proxy = s.http_proxy;
+    tauri::async_runtime::spawn_blocking(move || crate::balance::fetch_all(&keys, &proxy))
         .await
         .unwrap_or_default()
 }

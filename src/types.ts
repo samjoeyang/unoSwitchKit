@@ -44,25 +44,31 @@ export interface CacheClearResult {
   failed: CacheClearFailure[];
 }
 
-export interface DeepSeekKey {
+export interface ProviderKey {
   id: string;
+  /// deepseek / kimi / kimi_intl / zhipu / stepfun / novita /
+  /// openrouter / ai302 / aihubmix / custom
+  provider: string;
   label: string;
   api_key: string;
+  /// 仅 custom 使用：站点地址
+  base_url: string;
 }
 
-export interface DeepSeekBalanceInfo {
+export interface BalanceLine {
+  label: string;
+  amount: string;
   currency: string;
-  total_balance: string;
-  granted_balance: string;
-  topped_up_balance: string;
+  primary: boolean;
 }
 
-export interface DeepSeekAccountBalance {
+export interface AccountBalance {
   id: string;
+  provider: string;
   label: string;
   ok: boolean;
   is_available: boolean;
-  balances: DeepSeekBalanceInfo[];
+  balances: BalanceLine[];
   error: string | null;
 }
 
@@ -70,7 +76,9 @@ export interface Settings {
   toggle_order: string[];
   cache_whitelist_extra: string[];
   last_release: MemoryComparison | null;
-  deepseek_keys: DeepSeekKey[];
+  provider_keys: ProviderKey[];
+  /// 余额查询用的 HTTP 代理，留空直连
+  http_proxy: string;
 }
 
 export interface SidecarStatus {

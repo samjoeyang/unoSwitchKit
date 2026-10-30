@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../ipc";
-import { DeepSeekKeyForm } from "./DeepSeekKeyForm";
+import { KeyForm } from "./KeyForm";
 
 interface Props {
   version: string;
@@ -11,16 +11,16 @@ interface Props {
   updating: boolean;
   updateMsg: string | null;
   onCheckUpdate: () => void;
-  /// DeepSeek Key 变化后通知外部刷新（余额区随之出现）
-  onDeepSeekChanged: () => void;
-  /// 外部 Key 变动的版本号，用于重新读取 Key 数量
-  dsVersion: number;
+  /// 余额账号变化后通知外部刷新（余额区随之出现）
+  onBalanceChanged: () => void;
+  /// 外部账号变动的版本号，用于重新读取账号数量
+  balanceVersion: number;
   /// 设置项操作提示（如开机自启切换结果）
   notice?: string | null;
   onClose: () => void;
 }
 
-/// 设置面板：开机自启、检查更新、DeepSeek API Key（仅首个 Key 在此时提供入口）。
+/// 设置面板：开机自启、检查更新、模型余额账号（仅首个账号在此提供入口）。
 export function SettingsSection({
   version,
   launch,
@@ -28,24 +28,43 @@ export function SettingsSection({
   updating,
   updateMsg,
   onCheckUpdate,
-  onDeepSeekChanged,
-  dsVersion,
+  onBalanceChanged,
+  balanceVersion,
   notice,
   onClose,
 }: Props) {
   const [keyCount, setKeyCount] = useState<number | null>(null);
   const [addingKey, setAddingKey] = useState(false);
+  const [proxy, setProxy] = useState("");
+  const [savedProxy, setSavedProxy] = useState("");
+  const [proxySaving, setProxySaving] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
         const s = await api.getSettings();
-        setKeyCount((s.deepseek_keys ?? []).length);
+        setKeyCount((s.provider_keys ?? []).length);
+        setProxy(s.http_proxy ?? "");
+        setSavedProxy(s.http_proxy ?? "");
       } catch {
         setKeyCount(null);
       }
     })();
-  }, [dsVersion]);
+  }, [balanceVersion]);
+
+  async function saveProxy() {
+    setProxySaving(true);
+    try {
+      const s = await api.getSettings();
+      s.http_proxy = proxy.trim();
+      await api.saveSettings(s);
+      setSavedProxy(proxy.trim());
+    } catch {
+      /* 失败时保留输入，便于重试 */
+    } finally {
+      setProxySaving(false);
+    }
+  }
 
   const rowLabel = "text-[12px] text-white/85";
   const rowHint = "text-[10px] text-white/35";
@@ -107,13 +126,40 @@ export function SettingsSection({
           )}
         </div>
 
-        {/* DeepSeek API Key：仅在尚无 Key 时于设置中提供首次添加入口 */}
+        {/* 余额查询代理：部分境外站点直连会被重置 */}
+        <div className="py-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className={rowLabel}>网络代理</div>
+              <div className={rowHint}>
+                {savedProxy ? `当前 ${savedProxy}` : "余额查询直连，境外站点可填代理"}
+              </div>
+            </div>
+            <button
+              onClick={saveProxy}
+              disabled={proxySaving || proxy.trim() === savedProxy}
+              className={actionBtn}
+            >
+              {proxySaving ? "保存中…" : "保存"}
+            </button>
+          </div>
+          <input
+            value={proxy}
+            onChange={(e) => setProxy(e.target.value)}
+            placeholder="http://127.0.0.1:7897（留空直连）"
+            className="mt-1.5 w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/85 placeholder:text-white/30 focus:border-indigo-400/50 focus:outline-none"
+          />
+        </div>
+
+        {/* 模型余额账号：仅在尚无账号时于设置中提供首次添加入口 */}
         {keyCount === 0 && (
           <div className="py-2">
             <div className="flex items-center justify-between">
               <div>
-                <div className={rowLabel}>DeepSeek API Key</div>
-                <div className={rowHint}>添加后显示余额，每 60 秒自动刷新</div>
+                <div className={rowLabel}>模型余额账号</div>
+                <div className={rowHint}>
+                  DeepSeek / Kimi / 智谱 / 阶跃 / OpenRouter 等，60 秒自动刷新
+                </div>
               </div>
               <button
                 onClick={() => setAddingKey((v) => !v)}
@@ -124,10 +170,10 @@ export function SettingsSection({
             </div>
             {addingKey && (
               <div className="mt-2">
-                <DeepSeekKeyForm
+                <KeyForm
                   onSaved={() => {
                     setAddingKey(false);
-                    onDeepSeekChanged();
+                    onBalanceChanged();
                   }}
                   onCancel={() => setAddingKey(false)}
                 />

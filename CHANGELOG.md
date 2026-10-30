@@ -2,6 +2,39 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.4.0] - 2026-10-31
+
+### 新增：多平台余额查询（取代原 DeepSeek 专用余额）
+
+- **Rust**：`deepseek.rs` → `balance.rs`，按 `provider` 分发；结果模型统一为 `AccountBalance { provider, label, ok, is_available, balances[] }`，金额行归一化为 `{label, amount, currency, primary}`。
+- **支持的平台与接口**：
+  | provider | 接口 | 备注 |
+  |---|---|---|
+  | deepseek | `GET api.deepseek.com/user/balance` | 多币种、充值/赠送明细 |
+  | kimi / kimi_intl | `GET {api.moonshot.cn,api.moonshot.ai}/v1/users/me/balance` | 可用/现金/代金券 |
+  | zhipu | `GET open.bigmodel.cn/api/paas/v4/users/me/balance` | 旧版资源接口（官方文档未列），仅按量付费余额 |
+  | stepfun | `GET api.stepfun.com/v1/accounts` | 后付费账户余额 0 仍判为可用 |
+  | novita | `GET api.novita.ai/openapi/v1/billing/balance/detail`（旧 `v3/user/balance` 兜底） | 金额单位 1/10000 USD |
+  | openrouter | `GET openrouter.ai/api/v1/credits`（回退 `/api/v1/key`） | 余额 = 购买额 − 已用 |
+  | ai302 | `GET api.302.ai/dashboard/balance` | Key 需开通「管理后台」权限 |
+  | aihubmix | `GET aihubmix.com/api/user/self`（回退 `/dashboard/billing/remain`） | quota ÷ 500000 = USD |
+  | custom | `GET {base}/dashboard/billing/subscription` + `/usage`（回退 `/api/user/self`） | new-api / one-api 系中转站 |
+- **并行查询**：多 Key 用 `std::thread::scope` 并行，单 Key 失败不影响其它。
+- **网络代理**：设置新增「网络代理」，写入 `settings.json` 的 `http_proxy`，余额请求统一带 `--proxy`（境外站点直连易 TLS 重置）。留空直连。
+- **配置迁移**：`Settings.deepseek_keys` → `provider_keys`（serde alias + 空 provider 视为 deepseek），旧配置无需手动迁移，并有单测覆盖。
+
+### 改动：前端余额区与表单
+
+- `DeepSeekSection` → `BalanceSection`：每行显示平台标签 + 备注 + 主余额，明细（充值/赠送/已用）并排小字；列表限高 196px 内部滚动。
+- `DeepSeekKeyForm` → `KeyForm`：平台下拉选择、按平台显示取 Key 提示、中转站额外填站点地址。
+- 设置面板：`DeepSeek API Key` 行改为 `模型余额账号`（无账号时才显示添加入口）。
+
+### 验证
+
+- ✅ `cargo check` 零告警；✅ `cargo test`（配置迁移用例通过）；✅ `npm run build`（tsc + vite）。
+- ✅ 9 个官方接口用无效 Key 探测均为 401（路径有效，非 404）；302.AI / AiHubMix 需经代理访问，直连在本机被重置，故新增代理设置。
+- ⏳ 真实 Key 余额数值待装机验证。
+
 ## [0.3.9] - 2026-10-30
 
 ### 新增：设置模块

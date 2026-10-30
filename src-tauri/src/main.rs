@@ -1,8 +1,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod balance;
 mod cache_whitelist;
 mod commands;
-mod deepseek;
 mod models;
 mod privilege;
 mod store;
@@ -121,7 +121,7 @@ fn main() {
             commands::flush_dns,
             commands::preview_cache_cleanup,
             commands::clear_cache,
-            commands::get_deepseek_balances,
+            commands::get_balances,
             commands::get_memory_stats,
             commands::get_settings,
             commands::save_settings,
