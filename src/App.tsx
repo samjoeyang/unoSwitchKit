@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ToggleGrid, type ToggleKey } from "./components/ToggleGrid";
 import { ResourcePanel } from "./components/ResourcePanel";
 import { BluetoothSection } from "./components/BluetoothSection";
+import { DeepSeekSection } from "./components/DeepSeekSection";
 import { StatusDot } from "./components/StatusDot";
 import { api } from "./ipc";
 import { checkAndInstall } from "./update";
@@ -127,12 +128,13 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-white/40">v0.3.7</span>
+        <span className="text-[10px] text-white/40">v0.3.8</span>
       </div>
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
       <ResourcePanel />
       <BluetoothSection />
+      <DeepSeekSection />
 
       <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-2">
         <label className="flex cursor-pointer items-center gap-2 text-[12px] text-white/70">

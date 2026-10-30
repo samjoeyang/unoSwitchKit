@@ -44,10 +44,33 @@ export interface CacheClearResult {
   failed: CacheClearFailure[];
 }
 
+export interface DeepSeekKey {
+  id: string;
+  label: string;
+  api_key: string;
+}
+
+export interface DeepSeekBalanceInfo {
+  currency: string;
+  total_balance: string;
+  granted_balance: string;
+  topped_up_balance: string;
+}
+
+export interface DeepSeekAccountBalance {
+  id: string;
+  label: string;
+  ok: boolean;
+  is_available: boolean;
+  balances: DeepSeekBalanceInfo[];
+  error: string | null;
+}
+
 export interface Settings {
   toggle_order: string[];
   cache_whitelist_extra: string[];
   last_release: MemoryComparison | null;
+  deepseek_keys: DeepSeekKey[];
 }
 
 export interface SidecarStatus {

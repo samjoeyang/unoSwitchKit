@@ -3,6 +3,7 @@ import type {
   BtDevice,
   CacheClearResult,
   CachePreview,
+  DeepSeekAccountBalance,
   MemoryComparison,
   MemoryStat,
   Settings,
@@ -29,6 +30,8 @@ export const api = {
   flushDns: () => invoke<void>("flush_dns"),
   previewCacheCleanup: () => invoke<CachePreview>("preview_cache_cleanup"),
   clearCache: () => invoke<CacheClearResult>("clear_cache"),
+  getDeepSeekBalances: () =>
+    invoke<DeepSeekAccountBalance[]>("get_deepseek_balances"),
   getMemoryStats: () => invoke<MemoryStat>("get_memory_stats"),
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (s: Settings) => invoke<void>("save_settings", { settings: s }),

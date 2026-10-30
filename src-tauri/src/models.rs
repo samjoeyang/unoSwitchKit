@@ -71,6 +71,37 @@ pub struct Settings {
     pub toggle_order: Vec<String>,
     pub cache_whitelist_extra: Vec<String>,
     pub last_release: Option<MemoryComparison>,
+    /// DeepSeek API Key 列表（支持多个）。旧配置文件无此字段时按空列表处理。
+    #[serde(default)]
+    pub deepseek_keys: Vec<DeepSeekKey>,
+}
+
+/// 一个 DeepSeek API Key 配置。
+#[derive(Serialize, Deserialize, Clone, Default)]
+pub struct DeepSeekKey {
+    pub id: String,
+    pub label: String,
+    pub api_key: String,
+}
+
+/// 单个币种的余额明细（来自 DeepSeek /user/balance）。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DeepSeekBalanceInfo {
+    pub currency: String,
+    pub total_balance: String,
+    pub granted_balance: String,
+    pub topped_up_balance: String,
+}
+
+/// 某个 Key 的余额查询结果（含错误信息，便于前端逐条展示）。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct DeepSeekAccountBalance {
+    pub id: String,
+    pub label: String,
+    pub ok: bool,
+    pub is_available: bool,
+    pub balances: Vec<DeepSeekBalanceInfo>,
+    pub error: Option<String>,
 }
 
 
