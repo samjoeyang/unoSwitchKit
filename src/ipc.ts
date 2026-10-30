@@ -40,8 +40,6 @@ export const api = {
   btDisconnect: (address: string) => invoke<boolean>("bt_disconnect", { address }),
   quitApp: () => invoke<void>("quit_app"),
   menubarState: () => invoke<MenuBarState>("menubar_state"),
-  menubarSetVisible: (id: string, show: boolean) =>
-    invoke<void>("menubar_set_visible", { id, show }),
-  menubarSetManaged: (managed: boolean) =>
-    invoke<void>("menubar_set_managed", { managed }),
+  menubarSetCollapsed: (collapsed: boolean) =>
+    invoke<boolean>("menubar_set_collapsed", { collapsed }),
 };

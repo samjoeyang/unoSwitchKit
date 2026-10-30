@@ -54,13 +54,12 @@ export interface MenuBarItemState {
   id: string;
   owner: string;
   title: string;
-  show: boolean;
   visible: boolean;
 }
 
 export interface MenuBarState {
   ax_trusted: boolean;
   running: boolean;
-  managed: boolean;
+  collapsed: boolean;
   items: MenuBarItemState[];
 }

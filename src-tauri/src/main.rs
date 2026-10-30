@@ -131,8 +131,7 @@ fn main() {
             commands::bt_disconnect,
             commands::quit_app,
             commands::menubar_state,
-            commands::menubar_set_visible,
-            commands::menubar_set_managed,
+            commands::menubar_set_collapsed,
         ])
         .run(tauri::generate_context!())
         .expect("error while running SwitchKit");

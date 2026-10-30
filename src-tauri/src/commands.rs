@@ -476,16 +476,22 @@ pub async fn sidecar_status() -> SidecarStatus {
     }
 }
 
-/// 菜单栏图标管理状态：枚举 + 合并白名单 + 推送巡检策略。
+/// 菜单栏收纳状态：图标枚举 + 收起状态；守护进程刚启动时自动摆放边界
+/// 并恢复上次的收起状态。
 #[tauri::command]
 pub async fn menubar_state(app: AppHandle) -> MenuBarState {
-    let mut settings = crate::store::load_settings(&app);
+    let settings = crate::store::load_settings(&app);
 
     let resp = sidecar_call(json!({ "cmd": "menubar:list" }), 600, 8000);
     let running = resp.is_ok();
     let ax_trusted = resp.as_ref()
         .ok()
         .and_then(|v| v.get("axTrusted"))
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false);
+    let mut collapsed = resp.as_ref()
+        .ok()
+        .and_then(|v| v.get("collapsed"))
         .and_then(|x| x.as_bool())
         .unwrap_or(false);
 
@@ -497,65 +503,57 @@ pub async fn menubar_state(app: AppHandle) -> MenuBarState {
                 if id.is_empty() {
                     continue;
                 }
-                let x = it.get("x").and_then(|x| x.as_f64()).unwrap_or(0.0);
-                let y = it.get("y").and_then(|x| x.as_f64()).unwrap_or(0.0);
                 let visible = it.get("visible").and_then(|x| x.as_bool()).unwrap_or(false);
-                // 记录可见项的原始位置（隐藏后恢复用），持久化
-                if visible {
-                    settings
-                        .menubar_positions
-                        .entry(id.clone())
-                        .or_insert([x, y]);
-                }
                 items.push(MenuBarItemState {
-                    show: settings.menubar_visible.contains(&id),
-                    visible,
                     id,
                     owner: it.get("owner").and_then(|x| x.as_str()).unwrap_or("").to_string(),
                     title: it.get("title").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                    visible,
                 });
             }
         }
     }
 
-    // 推送巡检策略（守护进程按此持续执行）
+    // 守护进程刚启动：先自动摆放收纳边界（首次把边界放到全部第三方图标
+    // 右侧，保留 SwitchKit 自己的托盘），再恢复上次的收起状态。
     if running {
-        let visible_ids: Vec<String> = items.iter().filter(|i| i.show).map(|i| i.id.clone()).collect();
-        let _ = sidecar_call(
-            json!({
-                "cmd": "menubar:apply",
-                "ownPid": std::process::id(),
-                "managed": settings.menubar_managed,
-                "visibleIds": visible_ids,
-                "positions": settings.menubar_positions,
-            }),
-            600,
-            8000,
-        );
-    }
-
-    let _ = crate::store::save_settings(&app, &settings);
-    MenuBarState { ax_trusted, running, managed: settings.menubar_managed, items }
-}
-
-/// 点亮 / 收起某个菜单栏图标（更新白名单；巡检由 menubar_state 推送生效）。
-#[tauri::command]
-pub async fn menubar_set_visible(app: AppHandle, id: String, show: bool) -> Result<(), String> {
-    let mut settings = crate::store::load_settings(&app);
-    if show {
-        if !settings.menubar_visible.contains(&id) {
-            settings.menubar_visible.push(id);
+        if let Ok(st) = sidecar_call(json!({ "cmd": "hidebar:state" }), 600, 4000) {
+            if st.get("freshStart").and_then(|x| x.as_bool()).unwrap_or(false) {
+                if ax_trusted {
+                    let _ = sidecar_call(
+                        json!({
+                            "cmd": "hidebar:autoplace",
+                            "excludeIds": ["unoswitchkit", "com.switchkit"],
+                            "excludeOwners": ["SwitchKit"],
+                        }),
+                        600,
+                        8000,
+                    );
+                }
+                let _ = sidecar_call(
+                    json!({ "cmd": "hidebar:set", "collapsed": settings.menubar_collapsed }),
+                    600,
+                    4000,
+                );
+                collapsed = settings.menubar_collapsed;
+            }
         }
-    } else {
-        settings.menubar_visible.retain(|x| x != &id);
     }
-    crate::store::save_settings(&app, &settings)
+
+    MenuBarState { ax_trusted, running, collapsed, items }
 }
 
-/// 菜单栏管理总开关（关闭 = 全部恢复显示并停止巡检）。
+/// 收起 / 展开菜单栏图标（守护进程撑开或缩回分隔条）。
 #[tauri::command]
-pub async fn menubar_set_managed(app: AppHandle, managed: bool) -> Result<(), String> {
+pub async fn menubar_set_collapsed(app: AppHandle, collapsed: bool) -> Result<bool, String> {
     let mut settings = crate::store::load_settings(&app);
-    settings.menubar_managed = managed;
-    crate::store::save_settings(&app, &settings)
+    let resp = sidecar_call(
+        json!({ "cmd": "hidebar:set", "collapsed": collapsed }),
+        600,
+        4000,
+    )?;
+    let applied = resp.get("collapsed").and_then(|x| x.as_bool()).unwrap_or(collapsed);
+    settings.menubar_collapsed = applied;
+    crate::store::save_settings(&app, &settings)?;
+    Ok(applied)
 }

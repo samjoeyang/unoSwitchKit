@@ -56,29 +56,17 @@ pub struct Settings {
     pub toggle_order: Vec<String>,
     pub cache_whitelist_extra: Vec<String>,
     pub last_release: Option<MemoryComparison>,
-    /// 菜单栏管理总开关（开启时未点亮图标默认收纳）。
-    #[serde(default = "default_true")]
-    pub menubar_managed: bool,
-    /// "点亮"（允许显示在菜单栏）的状态项 id 白名单。
+    /// 菜单栏收纳：是否处于收起状态（守护进程重启后恢复用）。
     #[serde(default)]
-    pub menubar_visible: Vec<String>,
-    /// 各状态项隐藏前的原始位置，用于恢复。
-    #[serde(default)]
-    pub menubar_positions: std::collections::HashMap<String, [f64; 2]>,
+    pub menubar_collapsed: bool,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-/// 面板菜单栏管理区的状态。
+/// 面板菜单栏收纳区的状态。
 #[derive(Serialize, Deserialize, Clone)]
 pub struct MenuBarItemState {
     pub id: String,
     pub owner: String,
     pub title: String,
-    /// 是否点亮（允许显示在菜单栏）。
-    pub show: bool,
     /// 当前是否实际可见（AX 读取；辅助功能未授权时无意义）。
     pub visible: bool,
 }
@@ -89,8 +77,8 @@ pub struct MenuBarState {
     pub ax_trusted: bool,
     /// 守护进程是否在运行。
     pub running: bool,
-    /// 管理总开关。
-    pub managed: bool,
+    /// 当前是否处于收起状态。
+    pub collapsed: bool,
     pub items: Vec<MenuBarItemState>,
 }
 

@@ -2,6 +2,22 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.3.2] - 2026-10-30
+
+### 修复：菜单栏图标收纳点击无效果（方案重构：AX 移动 → 分隔条撑开）
+
+- **根因（实测定案）**：原方案用 AX API `AXPosition` 移动其它进程的状态项，在本机（macOS 12.7.6 Intel）**所有写入一律返回 `kAXErrorFailure`(-25200)**——屏幕内/外坐标、沙箱内外、辅助功能已授权均一样；进程内 AX 移动自己的状态项、直接 `setFrameOrigin` 挪状态项窗口、`orderFrontRegardless` 调整窗口层级同样无效。对照 Hidden Bar 官方架构文档确认：**macOS 没有提供隐藏/移动其它 App 菜单栏图标的公开 API**，逐项移动（Bartender 式）在 Monterey 上不可行。
+- **新方案（Hidden Bar v1.10 同款，明确支持 macOS 10.13–12）**：守护进程在菜单栏放置自己的两个状态项——「箭头」（点击切换收起/展开，⌘ 拖动移动边界）+「分隔条」（收起时长度撑到 `max(500, min(最宽屏×2, 10000))`，把分界线左侧图标全部挤出屏幕左缘；展开时缩回 20pt，图标自动回流）。显示器热插拔后自动重新撑开。
+- **交互变更**：面板改为「收起图标/展开图标」总开关 + 只读图标列表（显示中/已收纳徽标）；「点亮」某图标 = 按住 ⌘ 把它拖到箭头右侧（常驻显示），拖动结果经 `autosaveName` 由系统永久记住。首次使用需按住 ⌘ 把箭头拖到想收纳的图标右侧（与 Hidden Bar 一致的手动引导；自动摆放已验证无公开 API 可行，代码保留待未来系统版本）。
+- **协议变更**：`menubar:apply`/`menubar:moveto` 移除；新增 `menubar:list`（含 collapsed）、`hidebar:state`（含 freshStart）、`hidebar:set`、`hidebar:autoplace`。Rust 命令 `menubar_set_visible`/`menubar_set_managed` 移除，新增 `menubar_set_collapsed`；settings 只保留 `menubar_collapsed`（守护重启后恢复收起状态）。
+- **守护进程健壮性**：端口 9876 被旧实例退出占用时改为重试绑定（原 `try!` 直接崩溃且无人重启）；状态项创建改在 `NSApplication.shared` 初始化之后（修复 `CGSConnectionByID` 断言崩溃）；改用 `NSApplication.run()` 事件循环（状态项按钮点击需要）+ `accessory` 策略。
+- 诊断工具：守护日志落 `~/Library/Logs/switchkit-daemon.log`。
+
+### 验证
+
+- ✅ `swiftc` 守护编译通过；✅ `cargo check` 零告警；✅ `npm run build` 通过。
+- ✅ 实机协议全链路：list/state/collapse/expand 反复切换状态一致，收起/展开状态机稳定。
+
 ## [0.3.1] - 2026-10-30
 
 ### 修复：打开面板出现彩虹圈（主线程阻塞）

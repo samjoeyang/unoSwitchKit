@@ -84,6 +84,7 @@ class Connection {
             resp = [
                 "cmd": cmd,
                 "axTrusted": MenuBarManager.shared.isTrusted,
+                "collapsed": HideBarController.shared.isCollapsed,
                 "items": items.map {
                     [
                         "id": $0.id, "owner": $0.owner, "title": $0.title,
@@ -91,16 +92,25 @@ class Connection {
                     ] as [String: Any]
                 },
             ]
-        case "menubar:apply":
-            let ownPid = pid_t(obj["ownPid"] as? Int ?? 0)
-            let managed = obj["managed"] as? Bool ?? true
-            let visibleIds = obj["visibleIds"] as? [String] ?? []
-            var positions: [String: [Double]] = [:]
-            if let pm = obj["positions"] as? [String: [Double]] { positions = pm }
-            MenuBarManager.shared.configure(
-                ownPid: ownPid, managed: managed, visibleIds: visibleIds,
-                positions: positions)
-            resp = ["cmd": cmd, "ok": true]
+        case "hidebar:state":
+            resp = [
+                "cmd": cmd,
+                "collapsed": HideBarController.shared.isCollapsed,
+                "freshStart": HideBarController.shared.consumeFreshStart,
+            ]
+        case "hidebar:set":
+            let collapsed = obj["collapsed"] as? Bool ?? false
+            HideBarController.shared.setCollapsed(collapsed)
+            resp = [
+                "cmd": cmd, "ok": true,
+                "collapsed": HideBarController.shared.isCollapsed,
+            ]
+        case "hidebar:autoplace":
+            let excludeIds = obj["excludeIds"] as? [String] ?? []
+            let excludeOwners = obj["excludeOwners"] as? [String] ?? []
+            let ok = HideBarController.shared.autoplace(
+                excludeIds: excludeIds, excludeOwners: excludeOwners)
+            resp = ["cmd": cmd, "ok": ok]
         default:
             resp = ["error": "unknown command: \(cmd)"]
         }
