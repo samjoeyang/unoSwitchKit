@@ -78,9 +78,16 @@ export function ResourcePanel() {
     setBusy("cache-c");
     setMsg("");
     try {
-      const freed = await api.clearCache();
-      setMsg(`已清理缓存：${fmtBytes(freed)}`);
-      setPreview(null);
+      const r = await api.clearCache();
+      const parts = [`已清理 ${fmtBytes(r.freed_bytes)}（${r.cleared_count} 个目录）`];
+      if (r.failed.length > 0) {
+        parts.push(
+          `${r.failed.length} 个目录受系统保护未能清理（如 Safari，需在 系统设置 → 隐私与安全性 → 完全磁盘访问权限 中授予后重试）`
+        );
+      }
+      setMsg(parts.join("；"));
+      // 清理后自动刷新预览，直观显示剩余大小变化
+      setPreview(await api.previewCacheCleanup());
     } catch (e) {
       setMsg(`清理失败：${e}`);
     } finally {

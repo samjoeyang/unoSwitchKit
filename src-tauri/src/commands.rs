@@ -420,7 +420,7 @@ pub async fn preview_cache_cleanup() -> CachePreview {
 }
 
 #[tauri::command]
-pub async fn clear_cache() -> Result<u64, String> {
+pub async fn clear_cache() -> CacheClearResult {
     crate::cache_whitelist::clear()
 }
 

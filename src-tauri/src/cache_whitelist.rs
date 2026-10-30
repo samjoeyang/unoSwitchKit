@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::models::CacheItem;
+use crate::models::{CacheClearFailure, CacheClearResult, CacheItem};
 use crate::util;
 
 /// 仅允许清理的用户级缓存白名单（相对 ~/ 的路径）。
@@ -70,22 +70,47 @@ pub fn preview() -> Vec<CacheItem> {
         .collect()
 }
 
-/// 清理白名单目录，返回释放的总字节数。
+/// 清理白名单目录，返回清理结果。
+///
+/// 逐目录容错：单个目录失败（典型如 Safari 缓存受 macOS TCC 保护、普通 app
+/// 不可写）不会中断其它目录的清理，失败项收集到 `failed` 里由前端明确提示。
 /// 删除后重建空目录，避免依赖该目录存在的应用崩溃。
-pub fn clear() -> Result<u64, String> {
-    let mut total = 0u64;
+pub fn clear() -> CacheClearResult {
+    let mut freed_bytes = 0u64;
+    let mut cleared_count = 0usize;
+    let mut failed = Vec::new();
+
     for w in WHITELIST {
         let p = expand(w);
         if !p.exists() {
             continue;
         }
         if !is_under_home(&p) {
-            return Err(format!("拒绝越权路径: {}", p.display()));
+            failed.push(CacheClearFailure {
+                path: p.display().to_string(),
+                reason: "拒绝越权路径".to_string(),
+            });
+            continue;
         }
         let size = dir_size(&p);
-        fs::remove_dir_all(&p).map_err(|e| format!("删除 {} 失败: {}", p.display(), e))?;
-        fs::create_dir_all(&p).ok();
-        total += size;
+        match fs::remove_dir_all(&p) {
+            Ok(()) => {
+                fs::create_dir_all(&p).ok();
+                freed_bytes += size;
+                cleared_count += 1;
+            }
+            Err(e) => {
+                failed.push(CacheClearFailure {
+                    path: p.display().to_string(),
+                    reason: e.to_string(),
+                });
+            }
+        }
     }
-    Ok(total)
+
+    CacheClearResult {
+        freed_bytes,
+        cleared_count,
+        failed,
+    }
 }

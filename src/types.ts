@@ -33,6 +33,17 @@ export interface CachePreview {
   total_bytes: number;
 }
 
+export interface CacheClearFailure {
+  path: string;
+  reason: string;
+}
+
+export interface CacheClearResult {
+  freed_bytes: number;
+  cleared_count: number;
+  failed: CacheClearFailure[];
+}
+
 export interface Settings {
   toggle_order: string[];
   cache_whitelist_extra: string[];

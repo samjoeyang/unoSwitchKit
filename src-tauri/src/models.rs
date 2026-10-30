@@ -50,6 +50,21 @@ pub struct CachePreview {
     pub total_bytes: u64,
 }
 
+/// 单个缓存目录清理失败的原因（如受 TCC 保护、权限不足）。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CacheClearFailure {
+    pub path: String,
+    pub reason: String,
+}
+
+/// 缓存清理结果：逐目录容错，单个失败不影响其它目录。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct CacheClearResult {
+    pub freed_bytes: u64,
+    pub cleared_count: usize,
+    pub failed: Vec<CacheClearFailure>,
+}
+
 /// 持久化设置（JSON 文件，存于 AppConfig 目录）。
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Settings {

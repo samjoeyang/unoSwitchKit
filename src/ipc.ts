@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   BtDevice,
+  CacheClearResult,
   CachePreview,
   MemoryComparison,
   MemoryStat,
@@ -27,7 +28,7 @@ export const api = {
   releaseMemory: () => invoke<MemoryComparison>("release_memory"),
   flushDns: () => invoke<void>("flush_dns"),
   previewCacheCleanup: () => invoke<CachePreview>("preview_cache_cleanup"),
-  clearCache: () => invoke<number>("clear_cache"),
+  clearCache: () => invoke<CacheClearResult>("clear_cache"),
   getMemoryStats: () => invoke<MemoryStat>("get_memory_stats"),
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (s: Settings) => invoke<void>("save_settings", { settings: s }),
