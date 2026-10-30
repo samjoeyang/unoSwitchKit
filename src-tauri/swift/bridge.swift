@@ -4,6 +4,7 @@
 import Foundation
 import AppKit
 import Network
+import IOBluetooth
 
 // 协议常量
 let PROTOCOL_LINE_SEP: UInt8 = 10 // '\n'
@@ -119,12 +120,17 @@ class Connection {
 // ---------------- 原生能力封装 ----------------
 
 func bluetoothPower() -> Bool? {
+    // 优先系统框架 IOBluetoothHostController（公开 API，无外部依赖）
+    if let ctrl = IOBluetoothHostController.default() {
+        return ctrl.powerState == kBluetoothHCIPowerStateON
+    }
+    // 回退：blueutil CLI（第三方，需 brew install blueutil）
     let out = shell("blueutil", ["--power"]).trimmingCharacters(
         in: .whitespacesAndNewlines)
     return Int(out).map { $0 == 1 }
 }
 
-/// 同步执行外部命令并捕获 stdout。
+/// 同步执行外部命令并捕获 stdout；命令不存在或启动失败时立即返回空串（不挂起）。
 @discardableResult
 func shell(_ launchPath: String, _ args: [String]) -> String {
     let proc = Process()
@@ -133,7 +139,11 @@ func shell(_ launchPath: String, _ args: [String]) -> String {
     let pipe = Pipe()
     proc.standardOutput = pipe
     proc.standardError = pipe
-    try? proc.run()
+    do {
+        try proc.run()
+    } catch {
+        return "" // 如 blueutil 未安装：run 抛异常，waitUntilExit 会永久挂起
+    }
     proc.waitUntilExit()
     let data = pipe.fileHandleForReading.readDataToEndOfFile()
     return String(data: data, encoding: .utf8) ?? ""
