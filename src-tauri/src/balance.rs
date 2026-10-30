@@ -380,10 +380,17 @@ fn aihubmix(k: &ProviderKey, proxy: &str) -> BalanceResult {
 ///    余额 = hard_limit_usd - total_usage / 100
 /// 2. 回退 /api/user/self → data.quota ÷ 500000（通常需要控制台 Cookie，Key 直连可能 401）
 fn custom(k: &ProviderKey, proxy: &str) -> BalanceResult {
-    let raw = k.base_url.trim().trim_end_matches('/');
-    if raw.is_empty() {
+    let trimmed = k.base_url.trim();
+    if trimmed.is_empty() {
         return Err("请填写站点地址（如 https://api.example.com）".to_string());
     }
+    // 用户可能只填域名，补默认协议
+    let owned = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{}", trimmed)
+    };
+    let raw = owned.trim_end_matches('/');
     // 只剥掉结尾的 /v1（不能用 split("/v1")：域名本身可能以 v1 开头）
     let origin = raw.strip_suffix("/v1").unwrap_or(raw).trim_end_matches('/');
 
@@ -519,4 +526,67 @@ pub fn fetch_all(keys: &[ProviderKey], proxy: &str) -> Vec<AccountBalance> {
             .filter_map(|h| h.join().ok())
             .collect()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    /// 极简 HTTP 服务：只应答中转站计费两件套，用于验证 custom 分支的解析与换算。
+    fn serve(listener: TcpListener) {
+        for stream in listener.incoming() {
+            let mut sock = match stream {
+                Ok(s) => s,
+                Err(_) => return,
+            };
+            let mut buf = [0u8; 2048];
+            let n = sock.read(&mut buf).unwrap_or(0);
+            let req = String::from_utf8_lossy(&buf[..n]).to_string();
+            let path = req
+                .lines()
+                .next()
+                .unwrap_or("")
+                .split(' ')
+                .nth(1)
+                .unwrap_or("")
+                .to_string();
+            let body = if path.starts_with("/dashboard/billing/subscription") {
+                r#"{"hard_limit_usd":20.0,"soft_limit_usd":20.0}"#.to_string()
+            } else if path.starts_with("/dashboard/billing/usage") {
+                r#"{"total_usage":250.0}"#.to_string()
+            } else {
+                "{}".to_string()
+            };
+            let resp = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = sock.write_all(resp.as_bytes());
+        }
+    }
+
+    #[test]
+    fn custom_relay_reads_openai_billing_endpoints() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("绑定测试端口");
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || serve(listener));
+
+        let key = ProviderKey {
+            id: "t1".to_string(),
+            provider: "custom".to_string(),
+            label: "测试中转站".to_string(),
+            api_key: "sk-test".to_string(),
+            base_url: format!("http://127.0.0.1:{}", port),
+        };
+        let out = fetch_all(&[key], "");
+        assert_eq!(out.len(), 1);
+        assert!(out[0].ok, "查询应成功，实际错误：{:?}", out[0].error);
+        // 20 - 250/100 = 17.5
+        assert_eq!(out[0].balances[0].amount, "17.50");
+        assert_eq!(out[0].balances[0].currency, "USD");
+        assert!(out[0].is_available);
+    }
 }
