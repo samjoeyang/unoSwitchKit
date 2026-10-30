@@ -3,6 +3,11 @@ export interface ToggleStates {
   desktop_hidden: boolean;
   prevent_sleep: boolean;
   trash_count: number;
+  hide_dock: boolean;
+  show_hidden_files: boolean;
+  screen_clean: boolean;
+  stage_manager: boolean;
+  stage_manager_available: boolean;
 }
 
 export interface MemoryStat {

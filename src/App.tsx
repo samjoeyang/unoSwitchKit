@@ -58,6 +58,14 @@ export default function App() {
       else if (key === "desktop_hidden") await api.toggleHideDesktop();
       else if (key === "prevent_sleep") await api.togglePreventSleep();
       else if (key === "empty_trash") await api.emptyTrash();
+      else if (key === "hide_dock") await api.toggleHideDock();
+      else if (key === "show_hidden_files") await api.toggleShowHiddenFiles();
+      else if (key === "screen_clean") await api.toggleScreenClean();
+      else if (key === "stage_manager") await api.toggleStageManager();
+      else if (key === "lock_screen") await api.lockScreen();
+      else if (key === "clear_clipboard") await api.clearClipboard();
+      else if (key === "screensaver") await api.startScreensaver();
+      else if (key === "close_all_apps") await api.closeAllApps();
       await refresh();
     } catch (e) {
       alert(`操作失败：${e}`);
@@ -89,7 +97,7 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-white/40">v0.1.1</span>
+        <span className="text-[10px] text-white/40">v0.2.0</span>
       </div>
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />

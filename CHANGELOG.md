@@ -2,6 +2,30 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.2.0] - 2026-10-30
+
+### 新功能：扩展开关与即时动作（仿同类工具面板，按可行性裁剪）
+
+**新增开关（持久状态，读取系统真值）**
+
+- **隐藏 Dock**：`defaults write com.apple.dock autohide` + `killall Dock`。
+- **显示隐藏文件**：`defaults write com.apple.finder AppleShowAllFiles` + `killall Finder`。
+- **屏幕清洁**：一键收起所有前台 App 窗口（System Events `set visible of p to false`，按 unix id 跳过自身）；再次点击恢复显示。状态由应用内存维护。
+- **台前调度**：`com.apple.WindowManager GloballyEnabled` + `killall Dock`。**仅 macOS 13+ 可用，低版本系统上面板自动隐藏该开关**（`stage_manager_available`）；本机 macOS 12 上不可见，13+ 实机待验证。
+
+**新增即时动作（一次性执行，非开关）**
+
+- **锁定屏幕**：`CGSession -suspend`，失败回退 `pmset displaysleepnow`。
+- **清空剪贴板**：`pbcopy` 置空。
+- **屏幕保护**：`open -a ScreenSaverEngine`。
+- **关闭所有应用**：System Events 遍历前台 App 逐个优雅 `quit`（跳过自身与 Finder；未保存文档会弹存盘框，AppleEvent 超时限制 15s 防面板卡死），返回已请求退出的数量。
+
+**明确不做**：夜览（无官方 CLI，依赖第三方/脆弱 UI 脚本）、锁定键盘（CGEventTap 复杂且有失锁风险）；台前调度按系统版本条件显示。
+
+### 验证
+
+- ✅ `cargo check`（Tauri 2.12.5）通过；✅ `npm run build`（tsc + vite）通过。
+
 ## [0.1.1] - 2026-10-30
 
 ### 首轮实机反馈修复

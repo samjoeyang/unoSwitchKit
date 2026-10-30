@@ -12,9 +12,11 @@ use std::process::Child;
 use std::sync::Mutex;
 use tauri::Manager;
 
-/// 全局可变状态：仅保存 prevent-sleep 的 caffeinate 子进程句柄。
+/// 全局可变状态：prevent-sleep 的 caffeinate 子进程句柄 + 屏幕清洁状态。
 pub struct AppState {
     pub caffeinate: Mutex<Option<Child>>,
+    /// 屏幕清洁是否处于「已收起全部前台窗口」状态（本应用维护）。
+    pub screen_cleaned: Mutex<bool>,
 }
 
 /// 拉起 Swift 守护进程（菜单栏图标管理 / 蓝牙承载），已在运行则跳过。
@@ -98,6 +100,7 @@ fn main() {
         })
         .manage(AppState {
             caffeinate: Mutex::new(None),
+            screen_cleaned: Mutex::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_toggle_states,
@@ -105,6 +108,14 @@ fn main() {
             commands::toggle_hide_desktop,
             commands::toggle_prevent_sleep,
             commands::empty_trash,
+            commands::toggle_hide_dock,
+            commands::toggle_show_hidden_files,
+            commands::toggle_screen_clean,
+            commands::toggle_stage_manager,
+            commands::lock_screen,
+            commands::clear_clipboard,
+            commands::start_screensaver,
+            commands::close_all_apps,
             commands::release_memory,
             commands::flush_dns,
             commands::preview_cache_cleanup,

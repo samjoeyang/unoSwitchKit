@@ -5,13 +5,23 @@ export type ToggleKey =
   | "dark_mode"
   | "desktop_hidden"
   | "prevent_sleep"
-  | "empty_trash";
+  | "empty_trash"
+  | "hide_dock"
+  | "show_hidden_files"
+  | "screen_clean"
+  | "stage_manager"
+  | "lock_screen"
+  | "clear_clipboard"
+  | "screensaver"
+  | "close_all_apps";
 
 interface Item {
   key: ToggleKey;
   label: string;
   status: (s: ToggleStates) => string;
   active: (s: ToggleStates) => boolean;
+  /** 不可见条件（返回 true 则隐藏该项） */
+  hidden?: (s: ToggleStates) => boolean;
 }
 
 const ITEMS: Item[] = [
@@ -39,6 +49,56 @@ const ITEMS: Item[] = [
     status: (s) => `${s.trash_count} 项`,
     active: () => false,
   },
+  {
+    key: "hide_dock",
+    label: "隐藏 Dock",
+    status: (s) => (s.hide_dock ? "已隐藏" : "显示中"),
+    active: (s) => s.hide_dock,
+  },
+  {
+    key: "show_hidden_files",
+    label: "显示隐藏文件",
+    status: (s) => (s.show_hidden_files ? "显示中" : "隐藏中"),
+    active: (s) => s.show_hidden_files,
+  },
+  {
+    key: "screen_clean",
+    label: "屏幕清洁",
+    status: (s) => (s.screen_clean ? "已收起窗口" : "一键收起"),
+    active: (s) => s.screen_clean,
+  },
+  {
+    key: "stage_manager",
+    label: "台前调度",
+    status: (s) => (s.stage_manager ? "开" : "关"),
+    active: (s) => s.stage_manager,
+    // macOS 13 以下不支持，直接不显示
+    hidden: (s) => !s.stage_manager_available,
+  },
+  {
+    key: "lock_screen",
+    label: "锁定屏幕",
+    status: () => "点击锁定",
+    active: () => false,
+  },
+  {
+    key: "clear_clipboard",
+    label: "清空剪贴板",
+    status: () => "点击清空",
+    active: () => false,
+  },
+  {
+    key: "screensaver",
+    label: "屏幕保护",
+    status: () => "点击启动",
+    active: () => false,
+  },
+  {
+    key: "close_all_apps",
+    label: "关闭所有应用",
+    status: () => "逐个退出",
+    active: () => false,
+  },
 ];
 
 interface Props {
@@ -48,9 +108,10 @@ interface Props {
 }
 
 export function ToggleGrid({ states, busyKey, onToggle }: Props) {
+  const visible = states ? ITEMS.filter((it) => !it.hidden?.(states)) : ITEMS;
   return (
     <div className="grid grid-cols-2 gap-2">
-      {ITEMS.map((it) => {
+      {visible.map((it) => {
         const status = states ? it.status(states) : "—";
         const active = states ? it.active(states) : false;
         const busy = busyKey === it.key;

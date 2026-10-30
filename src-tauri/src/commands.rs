@@ -69,6 +69,48 @@ fn is_prevent_sleep(state: State<AppState>) -> bool {
     }
 }
 
+fn is_hide_dock() -> bool {
+    match util::run("defaults", &["read", "com.apple.dock", "autohide"]) {
+        Ok(out) => out.trim() == "1",
+        Err(_) => false,
+    }
+}
+
+fn is_show_hidden_files() -> bool {
+    match util::run("defaults", &["read", "com.apple.finder", "AppleShowAllFiles"]) {
+        Ok(out) => out.trim() == "1",
+        Err(_) => false,
+    }
+}
+
+fn is_stage_manager() -> bool {
+    match util::run("defaults", &["read", "com.apple.WindowManager", "GloballyEnabled"]) {
+        Ok(out) => out.trim() == "1",
+        Err(_) => false,
+    }
+}
+
+/// 主系统版本（如 12.7.6 → 12）。台前调度仅 13+ 可用。
+fn os_major_version() -> u32 {
+    util::run("sw_vers", &["-productVersion"])
+        .ok()
+        .and_then(|s| {
+            s.trim()
+                .split('.')
+                .next()
+                .and_then(|m| m.parse::<u32>().ok())
+        })
+        .unwrap_or(0)
+}
+
+/// AppleScript 里跳过自身进程的守卫条件（dev 产物名与发布名都覆盖）。
+fn skip_own_app_condition() -> String {
+    format!(
+        "(unix id of p) is not {}",
+        std::process::id()
+    )
+}
+
 // ---------------- 内存统计 ----------------
 
 fn parse_pages(s: &str) -> u64 {
@@ -119,11 +161,23 @@ fn parse_memory() -> Result<MemoryStat, String> {
 
 #[tauri::command]
 pub fn get_toggle_states(state: State<AppState>) -> ToggleStates {
+    let major = os_major_version();
+    // 先读本应用内存状态（借用 state），再把它移入 is_prevent_sleep
+    let screen_clean = state
+        .screen_cleaned
+        .lock()
+        .map(|g| *g)
+        .unwrap_or(false);
     ToggleStates {
         dark_mode: is_dark_mode(),
         desktop_hidden: is_desktop_hidden(),
         prevent_sleep: is_prevent_sleep(state),
         trash_count: trash_count(),
+        hide_dock: is_hide_dock(),
+        show_hidden_files: is_show_hidden_files(),
+        screen_clean,
+        stage_manager: if major >= 13 { is_stage_manager() } else { false },
+        stage_manager_available: major >= 13,
     }
 }
 
@@ -183,6 +237,124 @@ pub fn empty_trash() -> Result<u32, String> {
         }
     }
     Ok(before)
+}
+
+#[tauri::command]
+pub fn toggle_hide_dock() -> Result<bool, String> {
+    let next = !is_hide_dock();
+    let val = if next { "true" } else { "false" };
+    util::run("defaults", &["write", "com.apple.dock", "autohide", "-bool", val])?;
+    util::run("killall", &["Dock"])?;
+    Ok(next)
+}
+
+#[tauri::command]
+pub fn toggle_show_hidden_files() -> Result<bool, String> {
+    let next = !is_show_hidden_files();
+    let val = if next { "true" } else { "false" };
+    util::run(
+        "defaults",
+        &["write", "com.apple.finder", "AppleShowAllFiles", "-bool", val],
+    )?;
+    util::run("killall", &["Finder"])?;
+    Ok(next)
+}
+
+#[tauri::command]
+pub fn toggle_screen_clean(state: State<AppState>) -> Result<bool, String> {
+    let mut cleaned = state.screen_cleaned.lock().map_err(|_| "状态锁中毒")?;
+    if *cleaned {
+        // 恢复：把所有「无 UI 豁免、当前不可见」的常规 App 重新显示
+        let script = r#"tell application "System Events"
+  repeat with p in (every application process whose background only is false and visible is false)
+    try
+      set visible of p to true
+    end try
+  end repeat
+end tell"#;
+        util::run_osascript(script)?;
+        *cleaned = false;
+        return Ok(false);
+    }
+    // 清洁：收起所有前台可见窗口（跳过自身）
+    let script = format!(
+        r#"tell application "System Events"
+  repeat with p in (every application process whose background only is false and visible is true)
+    try
+      if {} then set visible of p to false
+    end try
+  end repeat
+end tell"#,
+        skip_own_app_condition()
+    );
+    util::run_osascript(&script)?;
+    *cleaned = true;
+    Ok(true)
+}
+
+#[tauri::command]
+pub fn toggle_stage_manager() -> Result<bool, String> {
+    if os_major_version() < 13 {
+        return Err("台前调度需要 macOS 13 (Ventura) 及以上".to_string());
+    }
+    let next = !is_stage_manager();
+    let val = if next { "true" } else { "false" };
+    // Ventura 上经 System Settings 写入的同一偏好键；改后重启 Dock 生效
+    util::run(
+        "defaults",
+        &["write", "com.apple.WindowManager", "GloballyEnabled", "-bool", val],
+    )?;
+    util::run("killall", &["Dock"])?;
+    Ok(next)
+}
+
+// ---------------- 即时动作 ----------------
+
+/// 锁定屏幕：CGSession -suspend（Monterey 可用），失败回退熄屏。
+#[tauri::command]
+pub fn lock_screen() -> Result<(), String> {
+    util::run(
+        "/System/Library/CoreServices/Menu Extras/User.menu/Contents/Resources/CGSession",
+        &["-suspend"],
+    )
+    .or_else(|_| util::run("pmset", &["displaysleepnow"]))
+    .map(|_| ())
+}
+
+/// 清空剪贴板。
+#[tauri::command]
+pub fn clear_clipboard() -> Result<(), String> {
+    util::run("sh", &["-c", ": | pbcopy"]).map(|_| ())
+}
+
+/// 启动屏幕保护。
+#[tauri::command]
+pub fn start_screensaver() -> Result<(), String> {
+    util::run("open", &["-a", "ScreenSaverEngine"]).map(|_| ())
+}
+
+/// 优雅退出所有前台 App（跳过自身与 Finder），返回已请求退出的数量。
+#[tauri::command]
+pub fn close_all_apps() -> Result<u32, String> {
+    let script = format!(
+        r#"tell application "System Events"
+  set quitCount to 0
+  repeat with p in (every application process whose background only is false and visible is true)
+    try
+      if {} and (name of p) is not "Finder" then
+        tell p to quit
+        set quitCount to quitCount + 1
+      end if
+    end try
+  end repeat
+  return quitCount
+end tell"#,
+        skip_own_app_condition()
+    );
+    // -t 15：未保存文档的 App 会弹存盘框，限制每个 AppleEvent 等待 15s，避免面板卡死
+    let out = util::run("osascript", &["-e", &script, "-t", "15"])?;
+    let n = out.trim().parse::<u32>().unwrap_or(0);
+    Ok(n)
 }
 
 #[tauri::command]

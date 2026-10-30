@@ -7,6 +7,16 @@ pub struct ToggleStates {
     pub desktop_hidden: bool,
     pub prevent_sleep: bool,
     pub trash_count: u32,
+    /// 隐藏 Dock（autohide）。
+    pub hide_dock: bool,
+    /// Finder 显示隐藏文件。
+    pub show_hidden_files: bool,
+    /// 屏幕清洁（本应用隐藏的全部前台窗口已收起）。
+    pub screen_clean: bool,
+    /// 台前调度（仅 macOS 13+ 有意义）。
+    pub stage_manager: bool,
+    /// 当前系统是否支持台前调度（< 13 时前端不渲染该开关）。
+    pub stage_manager_available: bool,
 }
 
 /// 内存占用快照（来自 vm_stat / sysctl）。
