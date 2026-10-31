@@ -353,12 +353,7 @@ pub fn shutdown_sidecar(app: &AppHandle) {
         }
     }
     // 端口兜底：清掉旧版本遗留的（无看门狗的）守护进程，避免升级后仍被占用
-    let _ = std::process::Command::new("sh")
-        .args([
-            "-c",
-            "lsof -nP -tiTCP:9876 -sTCP:LISTEN 2>/dev/null | while read -r p; do kill -9 \"$p\" 2>/dev/null; done",
-        ])
-        .output();
+    crate::kill_port_holder();
 }
 
 /// 退出 SwitchKit：先回收守护进程，再退出主进程。

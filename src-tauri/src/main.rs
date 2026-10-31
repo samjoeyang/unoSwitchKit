@@ -23,8 +23,25 @@ pub struct AppState {
     pub sidecar: Mutex<Option<Child>>,
 }
 
-/// 拉起 Swift 守护进程（蓝牙承载），已在运行则跳过。
-/// 返回**本进程新建**的子进程句柄；复用已有实例时返回 None。
+/// 清掉占用 9876 端口的进程（best-effort）。用于两处：
+/// ① 启动时发现端口被旧版本残留守护占用——旧版无看门狗、且曾有过
+///    `bluetooth:status` 挂起 bug（见 06faba6），必须换成本次构建的健康守护，
+///    否则状态探测会超时、面板显示「原生守护未运行」；
+/// ② 退出兜底（见 commands::shutdown_sidecar）。
+pub fn kill_port_holder() {
+    // 必须用绝对路径：GUI 启动（双击 / LaunchPad / 登录项）时进程 PATH 仅含
+    // /usr/bin:/bin，裸 `lsof` 会 command not found，导致清不掉端口占用。
+    let _ = std::process::Command::new("/bin/sh")
+        .args([
+            "-c",
+            "/usr/sbin/lsof -nP -tiTCP:9876 -sTCP:LISTEN 2>/dev/null | while read -r p; do kill -9 \"$p\" 2>/dev/null; done",
+        ])
+        .output();
+}
+
+/// 拉起 Swift 守护进程（蓝牙承载）。启动时若端口已被占用，先清掉可能的
+/// 陈旧/挂死守护再拉起本进程实例——单实例保证占用者必为残留进程。
+/// 返回**本进程新建**的子进程句柄；端口仍被外部占用无法拉起时返回 None。
 fn spawn_sidecar() -> Option<Child> {
     use std::net::TcpStream;
     use std::time::Duration;
@@ -33,7 +50,7 @@ fn spawn_sidecar() -> Option<Child> {
         Err(_) => return None,
     };
     if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
-        return None; // 已有实例在跑（归属其它进程，由它自己回收）
+        kill_port_holder();
     }
     // 产物路径：发布态在 exe 旁；开发态在 src-tauri/binaries/<名>-<triple>
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
