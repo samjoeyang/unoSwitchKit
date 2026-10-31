@@ -1,43 +1,54 @@
-name: Deploy Website to GitHub Pages
+name: Deploy Website to gh-pages
 
 # 仅手动指令触发：
 # 方式一：仓库 Actions 页 → 该工作流 → "Run workflow"
 # 方式二：命令行 `gh workflow run deploy-pages.yml`
-# 前置：仓库 Settings → Pages → Build and deployment → Source 选 "GitHub Actions"
+# 前置（一次性）：仓库 Settings → Pages → Build and deployment → Source 选
+#   "Deploy from a branch" → Branch: gh-pages / (root)
 on:
   workflow_dispatch:
 
-# GitHub Pages 部署所需的权限
+# 推送 gh-pages 分支需要的写权限
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
-# 同一时间只允许一个 Pages 部署，避免互相覆盖
+# 同一时间只允许一个部署，避免互相覆盖
 concurrency:
   group: pages-deploy
   cancel-in-progress: false
 
 jobs:
   deploy:
-    name: 发布官网单页
+    name: 构建并发布官网到 gh-pages
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
 
-      - name: 配置 Pages
-        uses: actions/configure-pages@v5
+      # 本站当前是纯静态单页（index.html + assets/），已构建好、无需编译。
+      # 若后续给 website/ 加了构建脚本（如 package.json + vite/build），
+      # 下面的判断会自动执行编译；没有则跳过，直接发布。
+      - name: 构建站点（按需）
+        working-directory: website
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+            npm run build
+          else
+            echo "website/ 为静态成品，无构建步骤，直接发布。"
+          fi
 
-      # 上传 website/ 整个目录作为静态站点（index.html + assets/）
-      - name: 上传站点产物
-        uses: actions/upload-pages-artifact@v3
+      # 将 website/ 推送到 gh-pages 分支：
+      # - publish_dir: 发布根目录（含 index.html、assets/、CNAME）
+      # - CNAME 文件已存在，自定义域名 switchkit.zhenzhidaole.com 自动生效
+      # - enable_jekyll: false → 写入 .nojekyll，避免 Jekyll 处理静态资源
+      # - force_orphan: true → gh-pages 保持为单提交干净分支
+      - name: 发布到 gh-pages 分支
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          path: website
-
-      - name: 部署到 GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./website
+          publish_branch: gh-pages
+          enable_jekyll: false
+          force_orphan: true
+          commit_message: "deploy: ${{ github.sha }}"

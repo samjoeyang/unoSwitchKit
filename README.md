@@ -2,8 +2,6 @@
 
 Mac 菜单栏快捷开关 + 系统资源释放工具。macOS 专属、常驻菜单栏、体积极小（目标：安装包 < 15MB、常驻内存 < 50MB）。
 
-> 对标 One Switch（快捷开关）+ CleanMyMac（资源释放）的轻量合体。
-
 ## 技术栈
 
 | 层 | 选型 |
@@ -153,3 +151,21 @@ npm run tauri build
 
 - 最低系统版本定为 `10.14`：`minimumSystemVersion` 受 Swift 守护依赖的 Network 框架（macOS 10.14+）限制，不能下调到 10.13；分发包为 universal 通用二进制，同时支持 Apple Silicon 与 Intel 芯片。
 - 蓝牙开关依赖第三方 `blueutil`（需 `brew install blueutil`），Swift sidecar 才会真正生效。
+
+## 讨论群组与赞赏
+
+### 交流群组
+
+遇到问题、提建议、看更新动态，来 Telegram 群组找我们。扫码或搜索 **[@UNOSWITCHKIT](https://t.me/UNOSWITCHKIT)** 即可加入。
+
+![SwitchKit Telegram 群组二维码](website/assets/telegram-qr.jpg)
+
+### 赞赏支持
+
+SwitchKit 完全免费、无广告、不收集数据。若它让你的 Mac 更好用，欢迎赞助，支持持续开发。
+
+| 微信支付 | 支付宝 |
+|---|---|
+| ![微信赞赏二维码](website/assets/donate-wechat.jpg) | ![支付宝赞赏二维码](website/assets/donate-alipay.jpg) |
+
+收款方式以二维码为准。

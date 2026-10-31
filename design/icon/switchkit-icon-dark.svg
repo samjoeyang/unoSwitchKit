@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#2A2A3A"/>
+      <stop offset="100%" stop-color="#15151F"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.12"/>
+      <stop offset="45%" stop-color="#ffffff" stop-opacity="0.02"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="knobShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+    <filter id="appShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="22" stdDeviation="34" flood-color="#000000" flood-opacity="0.40"/>
+    </filter>
+    <clipPath id="squircleClip">
+      <rect x="32" y="32" width="960" height="960" rx="222" ry="222"/>
+    </clipPath>
+  </defs>
+
+  <g filter="url(#appShadow)">
+    <rect x="32" y="32" width="960" height="960" rx="222" ry="222" fill="url(#bgGrad)"/>
+  </g>
+
+  <g clip-path="url(#squircleClip)">
+    <rect x="32" y="32" width="960" height="640" fill="url(#gloss)"/>
+
+    <!-- toggle track -->
+    <rect x="212" y="342" width="600" height="340" rx="170" ry="170" fill="#3A3A4D"/>
+    <rect x="212" y="342" width="600" height="340" rx="170" ry="170" fill="none" stroke="#FFFFFF" stroke-opacity="0.10" stroke-width="6"/>
+    <!-- knob glow (cyan, accent of ON) -->
+    <circle cx="642" cy="512" r="186" fill="#1FC8FF" opacity="0.18"/>
+    <!-- knob -->
+    <circle cx="642" cy="512" r="146" fill="#EDEFF7" filter="url(#knobShadow)"/>
+  </g>
+
+  <g fill="#9CF6FF">
+    <path d="M798 250 l15 38 38 15 -38 15 -15 38 -15 -38 -38 -15 38 -15 z"/>
+  </g>
+</svg>
