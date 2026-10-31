@@ -102,21 +102,19 @@ jobs:
           print("OTA 注入完成：createUpdaterArtifacts=true，endpoints 指向 releases/latest/download/latest.json")
           PY
 
-      # 将私钥 secret 整理成「单行裸 base64」写入文件、以路径模式传给 Tauri。
-      # 关键：Tauri 对 TAURI_SIGNING_PRIVATE_KEY 无论是内容还是文件路径，都会把拿到的值
-      # 直接用 PrivateKey::from_base64 按「单行 base64」解码。因此文件里必须是纯 base64
-      # 字符串（去掉 minisign 的 "untrusted comment" 注释行与所有换行/空白），否则会报
-      # "Invalid symbol 10, offset 100"。下面从 secret 中抽取 base64 行、剥离换行后落盘。
-      - name: 私钥整理为单行裸 base64 并以路径传入（修复签名解码失败）
+      # 将私钥 secret 写成文件、以「路径」模式传给 Tauri。
+      # 关键格式（已由 tauri cli 的 updater_signature.rs 源码确认）：TAURI_SIGNING_PRIVATE_KEY
+      # 必须是 `tauri signer generate` 产出的标准格式——即「base64( minisign 私钥文件文本 )」
+      # 的外层 base64 单行串。Tauri 读取后先做 base64 解码得到 minisign 私钥文本，再交给
+      # minisign 解析。因此这里只需把 secret 去除可能的尾随换行/空白后落盘即可，切勿再做任何
+      # 内容改写（之前两次失败正是因为格式少了最外层 base64 包装）。
+      - name: 私钥写文件并以路径传入（标准外层 base64 格式）
         if: env.OTA_ENABLED == 'true'
         run: |
           KEYFILE="$RUNNER_TEMP/switchkit-updater.key"
-          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" \
-            | grep -E '^[A-Za-z0-9+/]+={0,2}$' \
-            | head -n1 \
-            | tr -d '\r\n ' > "$KEYFILE"
+          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" | tr -d '\r\n ' > "$KEYFILE"
           echo "TAURI_SIGNING_PRIVATE_KEY=$KEYFILE" >> "$GITHUB_ENV"
-          echo "私钥已提取为单行裸 base64：字节数=$(wc -c < "$KEYFILE")，行数=$(wc -l < "$KEYFILE")"
+          echo "私钥文件字节数=$(wc -c < "$KEYFILE")"
 
       # 关键前置：编译 Swift 守护进程（arm64 + x86_64 双切片并 lipo 合并），
       # 同时产出 universal 版 .app（及 OTA 开启时的 .app.tar.gz + .sig）。

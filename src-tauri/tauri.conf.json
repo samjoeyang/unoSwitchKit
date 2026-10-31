@@ -5,7 +5,7 @@
   "identifier": "com.switchkit.app",
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRGNzA5Qjg0QjE3MzlEQzQKUldURW5YT3hoSnR3VDdDZXg4QXZJNTJXOEc4TGwxOUVhUjAySVhSM1FNZ1l5MW5VVkdRTllkY0MK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYxQzY4OTY0M0Y2ODdBNEMKUldSTWVtZy9aSW5HOFYvL1dtVjJlbDMvRE9ieHI3OXcvM0ZkWE9PQUVhS0c3QTN0dFJ3UTBvZ3cK",
       "endpoints": []
     }
   },
