@@ -62,6 +62,9 @@ swift_daemon() {
 }
 
 echo "== [1/4] 编译 Swift 守护进程 ($MODE) =="
+# CI 全新 checkout 时 src-tauri/binaries/ 可能不存在，swiftc 链接阶段写
+# ../binaries/switchkit-daemon-*.zip 会因父目录缺失而 ld ENOENT 失败，先建好。
+mkdir -p src-tauri/binaries
 DAEMON_BIN="src-tauri/binaries/switchkit-daemon-$TARGET"
 if [ "$MODE" = "universal" ]; then
   # Tauri 的 universal 构建会按架构分别打包 externalBin，因此必须提供
