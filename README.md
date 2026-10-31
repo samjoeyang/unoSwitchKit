@@ -33,27 +33,28 @@ Mac 菜单栏快捷开关 + 系统资源释放工具。macOS 专属、常驻菜�
 
 ### 从分发包安装
 
-1. **解压**。若拿到的是分卷（`*.z01`、`*.z02` … `*.zip`），先合并再解压：
+1. **下载**。前往 [GitHub Release](https://github.com/samjoeyang/unoSwitchKit/releases)（或官网下载页）下载对应芯片的压缩包：Apple 芯片选 `arm64`、Intel 选 `x86_64`、不确定选 `universal`。
+
+2. **解压并拖入应用程序**。若拿到的是分卷（`*.z01`、`*.z02` … `*.zip`），先合并再解压：
 
    ```bash
    zip -s 0 SwitchKit-v0.4.1-universal.zip --out SwitchKit-full.zip
    unzip SwitchKit-full.zip     # 得到 SwitchKit.app
    ```
 
-   单卷直接 `unzip SwitchKit-*.zip`。不要用第三方解压工具解分卷，容易丢 `.app` 包裹层。
+   单卷直接 `unzip SwitchKit-*.zip`。不要用第三方解压工具解分卷，容易丢 `.app` 包裹层。得到 `SwitchKit.app` 后，把它拖进 `/Applications`（「应用程序」文件夹，不要在压缩包内直接双击运行）。
 
-2. **拖入应用程序**：把 `SwitchKit.app` 拖到 `/Applications`（不要在压缩包内直接双击运行）。
+3. **首次启动**。打开「应用程序」文件夹，**直接点 SwitchKit 图标打开**（无需在 Finder 里右键）。分发包为 ad-hoc 签名、未公证，macOS 会先弹出安全警告，按下面顺序放行即可（只需一次）：
 
-3. **首次启动**。分发包为 ad-hoc 签名、未公证，Gatekeeper 会拦截：
-
-   - 首选：Finder 里**右键 `SwitchKit.app` → 打开 → 再点「打开」**（只需一次）
-   - macOS 15+ 若提示「已损坏，无法打开」，先移除隔离属性：
+   - 双击打开后弹「未打开"SwitchKit"」→ 点「完成」关掉；
+   - 打开「系统设置 → 隐私与安全性」，底部点「仍要打开」；
+   - 再次确认弹窗点「仍要打开」；
+   - 用触控 ID / 管理员密码授权，App 随即启动。
+   - 若仍提示「已损坏，无法打开」，先移除隔离属性再重试：
 
      ```bash
      xattr -dr com.apple.quarantine /Applications/SwitchKit.app
      ```
-
-   - 或：系统设置 → 隐私与安全性 → 底部「仍要打开」
 
 4. 启动后**无 Dock 图标**，图标常驻菜单栏；点击菜单栏图标展开面板。
 
