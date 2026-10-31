@@ -28,13 +28,9 @@ env:
   SWITCHKIT_UPDATE_ENDPOINTS: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && format('https://github.com/{0}/releases/latest/download/latest.json', github.repository) || '' }}
   TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
   TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-  # 以下签名/公证密钥均为可选：未配置时自动降级为 ad-hoc 签名（内测分发，OTA 安装可能被系统拦截）
-  APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-  APPLE_ID: ${{ secrets.APPLE_ID }}
-  APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+  # 苹果签名/公证密钥（APPLE_*）不在顶层 env 声明：空串会被 Tauri 误判为「需签名」
+  # 而进入 security import 流程并因空串报错。改为由下方「准备签名环境」步骤仅在 secret
+  # 真实存在时写入 $GITHUB_ENV。
 
 jobs:
   build:
@@ -57,6 +53,24 @@ jobs:
 
       - name: 确认 Swift 工具链
         run: swift --version
+
+      # 苹果签名/公证密钥：仅在 secret 真实存在时才注入环境变量。
+      # 关键坑：若把 APPLE_CERTIFICATE 设为空串，Tauri 会误以为要签名并去 security import 空串 → 报错；
+      # 因此这里用 -n 判定，空值一律不写入 $GITHUB_ENV，Tauri 随之走 ad-hoc 自签（内测可用）。
+      - name: 准备签名环境（仅当密钥存在时注入）
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for v in APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            val="${!v-}"
+            if [ -n "$val" ]; then echo "$v=$val" >> "$GITHUB_ENV"; fi
+          done
+          echo "Apple 签名环境变量已按非空条件注入（无则 Tauri 走 ad-hoc）"
 
       - name: 缓存 cargo
         uses: actions/cache@v4

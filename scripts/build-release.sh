@@ -103,7 +103,10 @@ if [ -n "$IDENTITY" ]; then
     echo "      本次只签名不公证。公证配置见 docs/构建指南.md §6。"
   fi
 else
-  unset APPLE_SIGNING_IDENTITY 2>/dev/null || true
+  # 关键：无证书时必须真正 unset 整组 Apple 变量，而非留空串——
+  # Tauri 见到 APPLE_CERTIFICATE（即使为空）就会进入 security import p12 流程而失败。
+  unset APPLE_SIGNING_IDENTITY APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+        APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID 2>/dev/null || true
   echo "   未找到 Developer ID 证书 → 降级为 ad-hoc 签名（内测分发）"
 fi
 
