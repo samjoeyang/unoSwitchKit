@@ -25,6 +25,12 @@ jobs:
       - name: 拉取代码
         uses: actions/checkout@v4
 
+      - name: 配置 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
       # 本站当前是纯静态单页（index.html + assets/），已构建好、无需编译。
       # 若后续给 website/ 加了构建脚本（如 package.json + vite/build），
       # 下面的判断会自动执行编译；没有则跳过，直接发布。
