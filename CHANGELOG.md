@@ -2,6 +2,54 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.4.1] - 2026-10-31
+
+### 构建：分发包默认 universal，修正「提示安装 Rosetta」与最低系统版本错配
+
+**问题**
+
+- 0.4.0 的 `SwitchKit-adhoc.zip` 实为 thin x86_64。构建机是 Intel Mac，脚本默认 `MODE=current`，`tauri build` 只出当前架构；Apple Silicon 用户装上即被要求安装 Rosetta 2，与「分发包为 universal 二进制」的对外承诺不一致。
+- `minimumSystemVersion` 曾写 `10.13`，与 Swift 守护实际部署目标不符：守护依赖 Network 框架（macOS 10.14+），且 Intel 切片此前默认按主机 SDK（12.0）编译，老 Intel Mac「装上即崩」。最低系统版本受 Network 框架限制，不能低于 10.14。
+
+**修复**
+
+- `scripts/build-release.sh`：默认 `--universal`，新增 `--current` 显式单架构；`swift_daemon()` 统一 `-target <arch>-apple-macosx$MACOS_MIN`（`10.14`），两个切片对齐（arm64 / x86_64 均按 10.14，覆盖 Apple Silicon 与 Intel）。
+- 构建后硬校验：主程序与守护进程的 `lipo -archs` 必须同时含 `arm64` + `x86_64`，缺失直接失败；另校验 Info.plist 的 `LSMinimumSystemVersion` 与 `MACOS_MIN` 一致。
+- 分发包改名 `SwitchKit-<version>-universal.zip`（单架构为 `-<arch>`），并在打包前删掉旧命名文件，避免同名包混淆误发。
+- `tauri.conf.json`：`minimumSystemVersion` 定为 `10.14`（受 Swift 守护依赖的 Network 框架限制，无法下调到 10.13；与两个切片部署目标一致）。
+- 顺带修 `--current` 在 Apple Silicon 上取到非法 triple `arm64-apple-darwin`（映射为 `aarch64`）；修 macOS 自带 bash 3.2 把 `$var（` 吞成全角字节导致的 `unbound variable`（统一 `${var}`）。
+
+**产物**：`src-tauri/target/universal-apple-darwin/release/bundle/macos/SwitchKit-0.4.1-universal.zip`（两个可执行文件 `minos` 均为 10.14）
+
+### 修复：点击「退出」后进程残留，覆盖安装提示「应用程序正在运行」
+
+**根因（三层叠加）**
+
+1. **守护进程永不退出**：`switchkit-daemon` 是 Swift AppKit 常驻进程（`NSApplication.run()`），打包后位于 `SwitchKit.app/Contents/MacOS/`。此前 `spawn_sidecar` 用 `std::mem::forget(child)` 刻意不持有句柄，主程序退出后它变成孤儿进程继续运行，**持续持有包内可执行文件的 mmap**。Finder 判定「app 正在运行」看的是 bundle 内文件是否被占用，因此覆盖替换必然失败。
+2. **主进程退出无兜底**：`quit_app` 直接 `app.exit(0)`，无超时保护。Tauri 在 `transparent + always_on_top + Accessory` 窗口组合下的退清理偶发挂起（实测有 debug 主进程存活 15 小时的现场），主进程未死时其子 daemon 自然也不会退。
+3. **开机自启指向旧路径**：`com.switchkit.app.plist` 记录的是写入时刻的 `current_exe()`，包被替换或移动后路径失效，launchd 仍指向旧副本。
+
+**修复**
+
+- `main.swift`：新增父进程看门狗。App 通过 `--parent-pid` 传入自身 PID，守护进程用 `DispatchSource.makeProcessSource(eventMask: .exit)` 监听内核的进程退出事件，父进程一终止（含 `kill -9`、崩溃、终端关闭）立即自杀。**不用 `kill(pid,0)` 轮询**——父进程未被 reap 时是僵尸，探测会误判存活。
+- `main.rs`：`spawn_sidecar` 改为返回 `Child` 并存入 `AppState.sidecar`；`app.manage` 移入 `setup` 内，保证句柄先于调用注册。
+- `main.rs`：改用 `build() + run(|handle, event| ...)`，在 `RunEvent::Exit` 中回收守护进程。
+- `commands.rs`：新增 `shutdown_sidecar`（kill 句柄 + 按 9876 端口兜底清理旧版无看门狗的残留）；`quit_app` 先回收再退出，并起 3 秒硬退兜底线程。
+- `store.rs`：新增 `repair_launch_agent`，正式构建启动时校验自启 plist 的 exe 路径，不一致则重写重载。
+- 新增 `scripts/clean-switchkit.sh`：一键清理残留进程与端口，`--all` 同时卸载自启项。
+
+### 运维：替换 .app 的正确姿势
+
+```bash
+./scripts/clean-switchkit.sh     # 先清干净
+# 再从 Finder 或命令行替换 SwitchKit.app
+```
+
+### 验证
+
+- ✅ `swiftc` 编译零警告；✅ `cargo check` 零告警。
+- ✅ 看门狗实测：`kill -9` 父进程后守护进程 3 秒内自动退出（日志 `sidecar: parent <pid> exited, shutting down`）。
+
 ## [0.4.0] - 2026-10-31
 
 ### 新增：多平台余额查询（取代原 DeepSeek 专用余额）

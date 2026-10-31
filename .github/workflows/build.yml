@@ -1,0 +1,185 @@
+name: Build macOS (Intel / Apple Silicon / Universal)
+
+# 仅手动指令触发：
+# 方式一：仓库 Actions 页 → 该工作流 → "Run workflow"
+# 方式二：命令行 `gh workflow run build.yml`
+on:
+  workflow_dispatch:
+
+# 同一分支的多次提交只保留最新一次运行
+concurrency:
+  group: build-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+# 发布 GitHub Release（含 OTA 更新 manifest）需要写权限
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+  # 与 tauri.conf.json bundle.macOS.minimumSystemVersion 对齐，避免老系统装上即崩
+  MACOSX_DEPLOYMENT_TARGET: "10.14"
+  # CI 连跑多架构构建，交给工作流在最后统一还原 tauri.conf.json
+  SKIP_CONF_RESTORE: "1"
+  # —— 在线更新（OTA）开关：仅当配置了私钥时才启用，否则整条 OTA 链路自动跳过 ——
+  # 端点指向 GitHub Release 里的 latest.json，随每次构建发布的最新版自动更新
+  SWITCHKIT_UPDATE_ENDPOINTS: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && format('https://github.com/{0}/releases/latest/download/latest.json', github.repository) || '' }}
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  # 以下签名/公证密钥均为可选：未配置时自动降级为 ad-hoc 签名（内测分发，OTA 安装可能被系统拦截）
+  APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+  APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+  APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+  APPLE_ID: ${{ secrets.APPLE_ID }}
+  APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+  APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+jobs:
+  build:
+    name: macOS 三架构构建 + OTA 发布
+    runs-on: macos-latest   # GitHub 托管的 macOS 自带 Xcode/Swift，可交叉编译 x86_64 与 aarch64
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 配置 Rust（同时装两个 macOS 目标）
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: 确认 Swift 工具链
+        run: swift --version
+
+      - name: 缓存 cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock', 'src-tauri/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      # 启用 OTA 时，把 createUpdaterArtifacts + endpoints 注入 tauri.conf.json
+      # （公钥 pubkey 已入库，无需改动；endpoints 仅在本次构建生效，最后还原）
+      - name: 注入 OTA 配置
+        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          python3 - <<'PY'
+          import json
+          p = "src-tauri/tauri.conf.json"
+          d = json.load(open(p))
+          d.setdefault("bundle", {})["createUpdaterArtifacts"] = True
+          d.setdefault("plugins", {}).setdefault("updater", {})["endpoints"] = \
+              ["https://github.com/${{ github.repository }}/releases/latest/download/latest.json"]
+          json.dump(d, open(p, "w"), indent=2, ensure_ascii=False)
+          print("OTA 注入完成：createUpdaterArtifacts=true，endpoints 指向 releases/latest/download/latest.json")
+          PY
+
+      # 关键前置：编译 Swift 守护进程（arm64 + x86_64 双切片并 lipo 合并），
+      # 同时产出 universal 版 .app（及 OTA 开启时的 .app.tar.gz + .sig）。
+      - name: 编译守护进程 + 构建 Universal 版
+        run: ./scripts/build-release.sh --universal
+
+      # 再分别构建两个 thin 架构（OTA 开启时一并产出带签名的 .app.tar.gz + .sig）
+      - name: 构建 Intel (x86_64) 与 Apple Silicon (aarch64)
+        run: |
+          npm run tauri build -- --target x86_64-apple-darwin --bundles app
+          npm run tauri build -- --target aarch64-apple-darwin --bundles app
+
+      # 对两个 thin 版做签名收尾 + 打包 zip（与 build-release.sh 的 universal 处理一致），用于手动分发
+      - name: 签名并打包 x86_64 / aarch64
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')"
+          IDENTITY="${APPLE_SIGNING_IDENTITY:-}"
+          for t in x86_64-apple-darwin aarch64-apple-darwin; do
+            arch="${t%-apple-darwin}"
+            APP="src-tauri/target/$t/release/bundle/macos/SwitchKit.app"
+            if [ -n "$IDENTITY" ]; then
+              codesign --force --deep --sign "$IDENTITY" "$APP"
+            else
+              codesign --force --deep --sign - "$APP"
+            fi
+            ( cd "src-tauri/target/$t/release/bundle/macos" && zip -r -y "SwitchKit-${VERSION}-${arch}.zip" "SwitchKit.app" )
+            echo "-> SwitchKit-${VERSION}-${arch}.zip ($(lipo -archs "$APP/Contents/MacOS/unoswitchkit" 2>/dev/null || echo '?'))"
+          done
+
+      # 启用 OTA 时：生成 latest.json 并发布到 GitHub Release
+      - name: 生成 latest.json 并发布 GitHub Release
+        id: gen_ota
+        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        run: |
+          set -euo pipefail
+          VERSION="$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          BASE="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
+          mkdir -p ota
+          # 读取每个架构的 .sig 内容、整理成 Tauri v2 静态 manifest，并准备好发布资产
+          python3 - "$VERSION" "$PUB_DATE" "$BASE" <<'PY'
+          import json, os, re, shutil, sys
+          ver, pub_date, base = sys.argv[1], sys.argv[2], sys.argv[3]
+          triple = {"x86_64": "x86_64-apple-darwin", "aarch64": "aarch64-apple-darwin"}
+          notes_text = open("CHANGELOG.md").read()
+          m = re.search(r'##\s*\[' + re.escape(ver) + r'\].*?(?=\n##\s|\Z)', notes_text, re.S)
+          notes = (m.group(0).strip() if m else f"SwitchKit {ver}").replace('\r', '')
+          staging = "ota"
+          platforms = {}
+          for arch, t in triple.items():
+              gz = f"src-tauri/target/{t}/release/bundle/macos/SwitchKit.app.tar.gz"
+              sig = gz + ".sig"
+              if not os.path.exists(gz) or not os.path.exists(sig):
+                  raise SystemExit(f"缺少更新产物：{gz} 或 {sig}（确认 TAURI_SIGNING_PRIVATE_KEY 已配置）")
+              sig_content = open(sig).read().strip()
+              asset = f"SwitchKit_{ver}_{arch}.app.tar.gz"
+              shutil.copy(gz, os.path.join(staging, asset))
+              shutil.copy(sig, os.path.join(staging, asset + ".sig"))
+              platforms[f"darwin-{arch}"] = {"signature": sig_content, "url": f"{base}/{asset}"}
+          manifest = {"version": ver, "notes": notes, "pub_date": pub_date, "platforms": platforms}
+          with open(os.path.join(staging, "latest.json"), "w") as f:
+              json.dump(manifest, f, indent=2, ensure_ascii=False)
+          print("latest.json 已生成，平台：", list(platforms.keys()))
+          PY
+          # 手动分发的三个 zip 也一并放进发布目录
+          cp src-tauri/target/*/release/bundle/macos/SwitchKit-*.zip ota/ 2>/dev/null || true
+          echo "OTA 发布目录："; ls -lh ota
+
+      - name: 发布到 GitHub Release
+        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.gen_ota.outputs.version }}
+          name: v${{ steps.gen_ota.outputs.version }}
+          body: |
+            SwitchKit v${{ steps.gen_ota.outputs.version }} 自动构建（Intel / Apple Silicon / Universal）。
+            已启用在线更新：应用内「检查更新」将拉取本 Release 的 latest.json。
+          make_latest: true
+          overwrite: true
+          files: ota/*
+
+      - name: 列出产物
+        run: ls -lh src-tauri/target/*/release/bundle/macos/SwitchKit-*.zip
+
+      - name: 上传构建产物（手动下载用，保留 30 天）
+        uses: actions/upload-artifact@v4
+        with:
+          name: switchkit-macos-${{ github.sha }}
+          path: src-tauri/target/*/release/bundle/macos/SwitchKit-*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+      # 还原 tauri.conf.json（OTA 注入仅用于本次构建，不入库）
+      - name: 还原 tauri.conf.json
+        if: always()
+        run: git checkout -- src-tauri/tauri.conf.json || true

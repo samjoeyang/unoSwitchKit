@@ -1,6 +1,6 @@
 [package]
 name = "unoswitchkit"
-version = "0.1.0"
+version = "0.4.1"
 description = "Mac 菜单栏快捷开关 + 系统资源释放工具"
 authors = ["SwitchKit"]
 edition = "2021"

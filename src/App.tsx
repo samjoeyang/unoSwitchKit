@@ -10,7 +10,7 @@ import { checkAndInstall } from "./update";
 import type { ToggleStates } from "./types";
 
 /// 应用版本（设置面板「检查更新」中展示）
-const APP_VERSION = "0.4.0";
+const APP_VERSION = "0.4.1";
 
 export default function App() {
   const [states, setStates] = useState<ToggleStates | null>(null);

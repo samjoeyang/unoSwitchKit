@@ -1,0 +1,43 @@
+name: Deploy Website to GitHub Pages
+
+# 仅手动指令触发：
+# 方式一：仓库 Actions 页 → 该工作流 → "Run workflow"
+# 方式二：命令行 `gh workflow run deploy-pages.yml`
+# 前置：仓库 Settings → Pages → Build and deployment → Source 选 "GitHub Actions"
+on:
+  workflow_dispatch:
+
+# GitHub Pages 部署所需的权限
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同一时间只允许一个 Pages 部署，避免互相覆盖
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 发布官网单页
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Pages
+        uses: actions/configure-pages@v5
+
+      # 上传 website/ 整个目录作为静态站点（index.html + assets/）
+      - name: 上传站点产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: website
+
+      - name: 部署到 GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

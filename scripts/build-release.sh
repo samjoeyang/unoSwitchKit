@@ -2,8 +2,9 @@
 # SwitchKit 发布构建脚本
 #
 # 用法：
-#   ./scripts/build-release.sh              # 当前架构
-#   ./scripts/build-release.sh --universal  # Apple Silicon + Intel 通用包
+#   ./scripts/build-release.sh              # Apple Silicon + Intel 通用包（默认）
+#   ./scripts/build-release.sh --universal  # 同上，显式指定
+#   ./scripts/build-release.sh --current    # 仅当前架构（本地快速验证，勿用于分发）
 #
 # 签名策略（自动检测，也可用 APPLE_SIGNING_IDENTITY 显式指定）：
 #   1) 钥匙串里存在「Developer ID Application」证书 → 用它签名；
@@ -22,17 +23,43 @@ ROOT="$(pwd)"
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
 command -v cargo >/dev/null 2>&1 || { echo "❌ 找不到 cargo，请先安装 Rust：https://rustup.rs"; exit 1; }
 
-MODE="current"
-[ "${1:-}" = "--universal" ] && MODE="universal"
+# 默认出 universal：分发目标是 Apple Silicon + Intel 混合环境，
+# 单架构包在另一种芯片上会触发「需要安装 Rosetta」或被直接拒绝。
+MODE="universal"
+case "${1:-}" in
+  ""|--universal) MODE="universal" ;;
+  --current)     MODE="current" ;;
+  *) echo "❌ 未知参数：$1（可用 --universal / --current）"; exit 2 ;;
+ esac
 
+# 两个切片必须共用同一部署目标：Info.plist 的 LSMinimumSystemVersion 由
+# tauri.conf.json 的 bundle.macOS.minimumSystemVersion 决定（10.14），
+# 若切片默认值更高（Intel 上 swiftc 默认当前 SDK，如 macOS 12），
+# 老系统会装上即崩——曾经就是 plist 写 10.13、Intel 切片实际要 12.0（swiftc 默认当前 SDK）。
+MACOS_MIN="10.14"
+
+# 产物名带上版本与架构，杜绝「同名的 x86_64 包被当成 universal 发出去」
+VERSION="$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])' 2>/dev/null || echo "0.0.0")"
+
+# uname 给 arm64，rust/swift triple 用 aarch64 / arm64 两种写法，这里分开映射
 ARCH="$(uname -m)"
 if [ "$MODE" = "universal" ]; then
   TARGET="universal-apple-darwin"
-  SWIFT_TARGETS="x86_64-apple-darwin arm64-apple-darwin"
 else
-  TARGET="${ARCH}-apple-darwin"
-  SWIFT_TARGETS="$TARGET"
+  case "$ARCH" in
+    arm64|aarch64) RUST_ARCH="aarch64" ;;
+    *)             RUST_ARCH="$ARCH" ;;
+  esac
+  TARGET="${RUST_ARCH}-apple-darwin"
 fi
+
+# $1 架构（swiftc 用 arm64 / x86_64），$2 输出路径
+swift_daemon() {
+  ( cd src-tauri/swift && swiftc -O -target "$1-apple-macosx${MACOS_MIN}" \
+      -framework AppKit -framework Network -framework IOBluetooth \
+      main.swift bridge.swift bluetooth.swift \
+      -o "$2" )
+}
 
 echo "== [1/4] 编译 Swift 守护进程 ($MODE) =="
 DAEMON_BIN="src-tauri/binaries/switchkit-daemon-$TARGET"
@@ -40,27 +67,14 @@ if [ "$MODE" = "universal" ]; then
   # Tauri 的 universal 构建会按架构分别打包 externalBin，因此必须提供
   # 每个架构的独立二进制（aarch64 / x86_64）；再 lipo 合并出 universal 供兼容。
   rm -f src-tauri/binaries/switchkit-daemon-{aarch64,x86_64,universal}-apple-darwin
-  # arm64 切片：交叉编译需显式部署目标（Apple Silicon 最低 11.0）
-  (cd src-tauri/swift && swiftc -O -target arm64-apple-macosx11.0 \
-    -framework AppKit \
-    -framework Network -framework IOBluetooth \
-    main.swift bridge.swift bluetooth.swift \
-    -o "../binaries/switchkit-daemon-aarch64-apple-darwin")
-  # x86_64 切片：沿用主机默认 target（macOS 12），不传 -target
-  (cd src-tauri/swift && swiftc -O \
-    -framework AppKit \
-    -framework Network -framework IOBluetooth \
-    main.swift bridge.swift bluetooth.swift \
-    -o "../binaries/switchkit-daemon-x86_64-apple-darwin")
+  swift_daemon arm64  "../binaries/switchkit-daemon-aarch64-apple-darwin"
+  swift_daemon x86_64 "../binaries/switchkit-daemon-x86_64-apple-darwin"
   lipo -create src-tauri/binaries/switchkit-daemon-aarch64-apple-darwin \
     src-tauri/binaries/switchkit-daemon-x86_64-apple-darwin \
     -output "$DAEMON_BIN"
 else
-  (cd src-tauri/swift && swiftc -O \
-    -framework AppKit \
-    -framework Network -framework IOBluetooth \
-    main.swift bridge.swift bluetooth.swift \
-    -o "../binaries/switchkit-daemon-$TARGET")
+  swift_daemon "$([ "$RUST_ARCH" = "aarch64" ] && echo arm64 || echo "$RUST_ARCH")" \
+    "../binaries/switchkit-daemon-$TARGET"
 fi
 
 # ad-hoc 签名守护进程：Apple Silicon 上无签名二进制直接被杀；Intel 上
@@ -126,14 +140,23 @@ BUILD_ARGS+=(--bundles app)
 npm run tauri build -- "${BUILD_ARGS[@]+"${BUILD_ARGS[@]}"}"
 
 # 还原 tauri.conf.json（endpoints 仅用于本次构建）
-if [ -n "$UPDATE_BACKUP" ]; then
+# SKIP_CONF_RESTORE=1 时跳过还原：CI 会一次性注入 OTA 配置后连跑多架构构建，
+# 由调用方在最后统一还原，避免中途把 endpoints 清掉导致后续构建丢失更新能力。
+if [ -n "$UPDATE_BACKUP" ] && [ "${SKIP_CONF_RESTORE:-}" != "1" ]; then
   cp "$UPDATE_BACKUP" "$CONF"; rm -f "$UPDATE_BACKUP"
   echo "   已还原 tauri.conf.json（更新 endpoints 不入库）"
+elif [ -n "$UPDATE_BACKUP" ]; then
+  rm -f "$UPDATE_BACKUP"
+  echo "   保留 tauri.conf.json 的 OTA 注入（SKIP_CONF_RESTORE=1，稍后由 CI 统一还原）"
 fi
 
 APP="$BUNDLE_DIR/macos/SwitchKit.app"
 # 分发包路径：在 if 块外无条件定义，避免 set -u 下收尾阶段引用未赋值变量而报错
-ZIP="${BUNDLE_DIR}/macos/SwitchKit-adhoc.zip"
+if [ "$MODE" = "universal" ]; then
+  ZIP="${BUNDLE_DIR}/macos/SwitchKit-${VERSION}-universal.zip"
+else
+  ZIP="${BUNDLE_DIR}/macos/SwitchKit-${VERSION}-${ARCH}.zip"
+fi
 
 echo "== [4/4] 签名收尾与验证 =="
 if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
@@ -156,20 +179,49 @@ fi
 
 # 守护进程确实进了包（externalBin 生效）
 DAEMON_IN_APP="$APP/Contents/MacOS/switchkit-daemon"
+APP_BIN="$APP/Contents/MacOS/unoswitchkit"
 [ -x "$DAEMON_IN_APP" ] || { echo "❌ 守护进程未打包进 .app！"; exit 1; }
 codesign -dv "$DAEMON_IN_APP" 2>&1 | head -2 || true
+
+# 架构硬校验：主程序与守护进程都必须含目标芯片切片。
+# 漏了 arm64 的包在 Apple Silicon 上会弹「需要安装 Rosetta」，
+# 历史上就是因为在 Intel 主机上跑了单架构构建而没拦住。
+if [ "$MODE" = "universal" ]; then
+  app_archs="$(lipo -archs "$APP_BIN" 2>/dev/null || echo none)"
+  daemon_archs="$(lipo -archs "$DAEMON_IN_APP" 2>/dev/null || echo none)"
+  echo "   unoswitchkit: $app_archs"
+  echo "   daemon      : $daemon_archs"
+  for a in arm64 x86_64; do
+    case "$app_archs"    in *"$a"*) ;; *) echo "❌ 主程序缺少 $a 切片"; exit 1 ;; esac
+    case "$daemon_archs" in *"$a"*) ;; *) echo "❌ 守护进程缺少 $a 切片"; exit 1 ;; esac
+  done
+  echo "   ✅ universal 校验通过（arm64 + x86_64）"
+else
+  echo "   ⚠️ 单架构包：$(lipo -archs "$APP_BIN" 2>/dev/null || echo 未知)（仅供本机调试，勿分发）"
+fi
+
+# 部署目标与 Info.plist 对齐校验：两边不一致会在老系统上「装上即崩」
+plist_min="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$APP/Contents/Info.plist" 2>/dev/null || true)"
+if [ "$plist_min" != "$MACOS_MIN" ]; then
+  echo "   ⚠️ Info.plist 最低系统版本为 ${plist_min:-未知}，与切片构建目标 ${MACOS_MIN} 不一致"
+else
+  # 变量必须用 ${} 包住：macOS 自带 bash 3.2 会把紧跟其后的全角字符
+  # 字节并入变量名，`$plist_min（` 会被解析成 plist_min<乱码> → unbound variable
+  echo "   macOS 最低版本：${plist_min}（与切片部署目标一致）"
+fi
 
 # DMG 不可用时提供 zip 分发包（签名后压缩，保留签名）
 # 注意：必须用 `zip -r -y`，不能用 `ditto -c -k`——ditto 会把源目录的「内容」
 # 直接打进压缩包根，丢弃 .app 包裹层，导致解压后只剩 Contents/ 而非 SwitchKit.app。
 # -y 保留可能的符号链接；从 macos 目录内用裸名 SwitchKit.app 打包以保持包裹层。
 if [ "${DMG_OK:-0}" = 0 ]; then
-  rm -f "$ZIP"
-  ( cd "${BUNDLE_DIR}/macos" && zip -r -y "SwitchKit-adhoc.zip" "SwitchKit.app" )
+  # 清掉旧命名的包，避免拿错（曾因统一叫 SwitchKit-adhoc.zip 误发 x86_64 包）
+  rm -f "${BUNDLE_DIR}/macos/SwitchKit-adhoc.zip" "$ZIP"
+  ( cd "${BUNDLE_DIR}/macos" && zip -r -y "$(basename "$ZIP")" "SwitchKit.app" )
   echo "   分发 zip：${ZIP}（解压后为 SwitchKit.app，右键 → 打开）"
 fi
 
 echo ""
 echo "✅ 完成。产物："
 ls -d "$APP" "$BUNDLE_DIR"/dmg/*.dmg 2>/dev/null || true
-[ "$DMG_OK" = 0 ] && ls -lh "$BUNDLE_DIR/macos/SwitchKit-adhoc.zip"
+[ "$DMG_OK" = 0 ] && ls -lh "$ZIP"

@@ -30,15 +30,15 @@ Mac 菜单栏快捷开关 + 系统资源释放工具。macOS 专属、常驻菜�
 
 ### 系统要求
 
-- macOS 10.13+（台前调度开关仅 macOS 13+ 显示，其余功能不受影响）
-- Apple Silicon / Intel 均可，分发包为 universal 二进制
+- macOS 10.14+（主程序与 Swift sidecar 均按 10.14 部署目标编译，分发包为 universal 通用二进制，同时支持 Apple Silicon 与 Intel；台前调度开关仅 macOS 13+ 显示，其余功能不受影响）
+- Apple Silicon / Intel 均可，分发包必须是 universal 二进制。`npm run tauri build` 只出当前架构，**分发请用 `./scripts/build-release.sh`**（默认 universal）；单架构包在另一种芯片上会弹「需要安装 Rosetta」
 
 ### 从分发包安装
 
 1. **解压**。若拿到的是分卷（`*.z01`、`*.z02` … `*.zip`），先合并再解压：
 
    ```bash
-   zip -s 0 SwitchKit-v0.4.0-universal.zip --out SwitchKit-full.zip
+   zip -s 0 SwitchKit-v0.4.1-universal.zip --out SwitchKit-full.zip
    unzip SwitchKit-full.zip     # 得到 SwitchKit.app
    ```
 
@@ -151,5 +151,5 @@ npm run tauri build
 
 ## 已知约束
 
-- 开发机为 macOS 12（Monterey），低于 PRD 要求的最低 Ventura 13；`minimumSystemVersion` 暂设 10.13 以保证本机可构建，发布前应上调至 13.0。
+- 最低系统版本定为 `10.14`：`minimumSystemVersion` 受 Swift 守护依赖的 Network 框架（macOS 10.14+）限制，不能下调到 10.13；分发包为 universal 通用二进制，同时支持 Apple Silicon 与 Intel 芯片。
 - 蓝牙开关依赖第三方 `blueutil`（需 `brew install blueutil`），Swift sidecar 才会真正生效。

@@ -52,3 +52,16 @@ body {
 .thin-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* 缓存路径过长时，悬浮缓慢向左滚动至完整显示 */
+@keyframes path-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(calc(-1 * var(--marquee-shift, 0px)));
+  }
+}
+.path-marquee.is-overflow:hover {
+  animation: path-marquee var(--marquee-dur, 4s) linear forwards;
+}

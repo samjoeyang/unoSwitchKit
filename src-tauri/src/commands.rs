@@ -4,7 +4,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 use serde_json::json;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::util;
 use crate::AppState;
@@ -340,9 +340,37 @@ pub async fn bt_disconnect(address: String) -> Result<bool, String> {
 
 // ---------------- 应用退出 ----------------
 
-/// 退出 SwitchKit（守护进程独立运行，不受影响）。
+/// 终止本进程拉起的 Swift 守护进程（幂等；复用外部实例时无句柄，不做处理）。
+/// 守护进程是 AppKit 常驻进程，不主动回收会占住 .app 包内二进制文件，
+/// 表现为「点了退出，但覆盖安装新版本时提示正在运行」。
+pub fn shutdown_sidecar(app: &AppHandle) {
+    if let Some(state) = app.try_state::<AppState>() {
+        if let Ok(mut guard) = state.sidecar.lock() {
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+    // 端口兜底：清掉旧版本遗留的（无看门狗的）守护进程，避免升级后仍被占用
+    let _ = std::process::Command::new("sh")
+        .args([
+            "-c",
+            "lsof -nP -tiTCP:9876 -sTCP:LISTEN 2>/dev/null | while read -r p; do kill -9 \"$p\" 2>/dev/null; done",
+        ])
+        .output();
+}
+
+/// 退出 SwitchKit：先回收守护进程，再退出主进程。
 #[tauri::command]
 pub fn quit_app(app: AppHandle) {
+    shutdown_sidecar(&app);
+    // 硬退兜底：Tauri 的退出清理在 transparent + always_on_top 窗口下偶发挂住，
+    // 3 秒后进程仍在则强退，保证「点退出」一定有结果。
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_secs(3));
+        std::process::exit(0);
+    });
     app.exit(0);
 }
 

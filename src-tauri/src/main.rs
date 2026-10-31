@@ -18,18 +18,22 @@ pub struct AppState {
     pub caffeinate: Mutex<Option<Child>>,
     /// 屏幕清洁是否处于「已收起全部前台窗口」状态（本应用维护）。
     pub screen_cleaned: Mutex<bool>,
+    /// 由本进程拉起的 Swift 守护进程句柄。必须持有：退出时主动终止，
+    /// 否则它是 AppKit 常驻进程，会一直占用 .app 包内的可执行文件。
+    pub sidecar: Mutex<Option<Child>>,
 }
 
 /// 拉起 Swift 守护进程（蓝牙承载），已在运行则跳过。
-fn spawn_sidecar() {
+/// 返回**本进程新建**的子进程句柄；复用已有实例时返回 None。
+fn spawn_sidecar() -> Option<Child> {
     use std::net::TcpStream;
     use std::time::Duration;
     let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
         Ok(a) => a,
-        Err(_) => return,
+        Err(_) => return None,
     };
     if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
-        return; // 已有实例在跑
+        return None; // 已有实例在跑（归属其它进程，由它自己回收）
     }
     // 产物路径：发布态在 exe 旁；开发态在 src-tauri/binaries/<名>-<triple>
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
@@ -46,13 +50,18 @@ fn spawn_sidecar() {
     );
     for path in candidates {
         if path.exists() {
-            if let Ok(child) = std::process::Command::new(&path).spawn() {
-                // 守护进程独立于 App 生命周期，刻意不持有句柄
-                std::mem::forget(child);
+            // 传入父 PID：守护进程据此自我看门，App 异常退出时不会变成孤儿
+            if let Ok(child) = std::process::Command::new(&path)
+                .arg("--parent-pid")
+                .arg(std::process::id().to_string())
+                .spawn()
+            {
+                return Some(child);
             }
             break;
         }
     }
+    None
 }
 
 fn main() {
@@ -96,12 +105,18 @@ fn main() {
             });
 
             tray::create_tray(app)?;
-            spawn_sidecar();
+
+            // 包被替换/移动后修正开机自启指向（旧路径会让 launchd 拉起旧副本）
+            store::repair_launch_agent();
+
+            // 先注册状态再拉守护进程：句柄要存进 AppState 以便退出时回收
+            let sidecar = spawn_sidecar();
+            app.manage(AppState {
+                caffeinate: Mutex::new(None),
+                screen_cleaned: Mutex::new(false),
+                sidecar: Mutex::new(sidecar),
+            });
             Ok(())
-        })
-        .manage(AppState {
-            caffeinate: Mutex::new(None),
-            screen_cleaned: Mutex::new(false),
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_toggle_states,
@@ -140,7 +155,15 @@ fn main() {
     // 后续接入服务器时把 endpoints 填上 manifest URL 即可，无需改 Rust 代码。
     builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
-    builder
-        .run(tauri::generate_context!())
+    let app = builder
+        .build(tauri::generate_context!())
         .expect("error while running SwitchKit");
+
+    // 退出兜底：无论从面板按钮、系统注销还是异常清理路径退出，都先回收守护进程，
+    // 避免残留进程占用 .app 内二进制文件（覆盖安装会被系统拒绝）。
+    app.run(|handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            commands::shutdown_sidecar(handle);
+        }
+    });
 }

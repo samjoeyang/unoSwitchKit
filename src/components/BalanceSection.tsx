@@ -5,8 +5,8 @@ import { api } from "../ipc";
 import { providerName } from "../providers";
 import type { AccountBalance, ProviderKey } from "../types";
 
-/// 定时刷新间隔：60 秒
-const REFRESH_MS = 60_000;
+/// 定时刷新间隔：300 秒
+const REFRESH_MS = 300_000;
 
 function currencySymbol(c: string) {
   return c === "USD" ? "$" : c === "CNY" || c === "" ? "¥" : `${c} `;
@@ -64,7 +64,7 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
   // Key 数量或成员变化都要重新查询（删一个再加一个时数量不变）
   const keysKey = keys.map((k) => k.id).join(",");
 
-  // 有 Key 时：立即查一次 + 每 60s 定时刷新 + 面板重新可见时刷新
+  // 有 Key 时：立即查一次 + 每 300s 定时刷新 + 面板重新可见时刷新
   useEffect(() => {
     if (keys.length === 0) {
       setBalances([]);

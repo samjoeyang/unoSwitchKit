@@ -82,3 +82,23 @@ pub fn set_launch_at_login(enabled: bool) -> Result<(), String> {
 pub fn is_launch_at_login() -> Result<bool, String> {
     Ok(launch_plist().map(|p| p.exists()).unwrap_or(false))
 }
+
+/// 启动时校验自启 plist 的可执行路径。
+/// .app 被替换或移动后旧路径失效，launchd 仍指向旧位置会导致新版本不生效，
+/// 甚至反复拉起已删除的副本。仅在正式构建中执行，避免 dev 二进制覆盖用户配置。
+pub fn repair_launch_agent() {
+    #[cfg(not(debug_assertions))]
+    {
+        let Some(plist) = launch_plist() else { return };
+        if !plist.exists() {
+            return;
+        }
+        let Ok(exe) = std::env::current_exe() else { return };
+        let exe_str = exe.to_string_lossy().to_string();
+        let Ok(content) = fs::read_to_string(&plist) else { return };
+        if content.contains(&format!("<string>{}</string>", exe_str)) {
+            return;
+        }
+        let _ = set_launch_at_login(true);
+    }
+}

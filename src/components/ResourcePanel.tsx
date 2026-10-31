@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CachePreview, MemoryComparison } from "../types";
 import { api } from "../ipc";
 
@@ -10,6 +10,53 @@ function fmtBytes(b: number) {
   if (b > 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
   if (b > 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${b} B`;
+}
+
+/// 单行缓存路径：路径过长时，鼠标悬浮其上缓慢向左滚动直到完整显示。
+function CachePathRow({ path, size }: { path: string; size: string }) {
+  const innerRef = useRef<HTMLSpanElement>(null);
+  const [overflow, setOverflow] = useState(false);
+  const [shift, setShift] = useState(0);
+  const [dur, setDur] = useState(4);
+
+  useEffect(() => {
+    const el = innerRef.current;
+    const outer = el?.parentElement;
+    if (!el || !outer) return;
+    const overflowPx = el.scrollWidth - outer.clientWidth;
+    if (overflowPx > 1) {
+      setOverflow(true);
+      setShift(overflowPx);
+      // 约 40px/秒，保证长路径也「缓慢」滚动
+      setDur(Math.max(2, overflowPx / 40));
+    } else {
+      setOverflow(false);
+    }
+  }, [path]);
+
+  return (
+    <div className="flex justify-between gap-2">
+      <span className="min-w-0 flex-1 overflow-hidden">
+        <span
+          ref={innerRef}
+          className={`inline-block ${
+            overflow ? "path-marquee is-overflow whitespace-nowrap" : "truncate"
+          }`}
+          style={
+            overflow
+              ? ({
+                  "--marquee-shift": `${shift}px`,
+                  "--marquee-dur": `${dur}s`,
+                } as React.CSSProperties)
+              : undefined
+          }
+        >
+          {path}
+        </span>
+      </span>
+      <span className="shrink-0">{size}</span>
+    </div>
+  );
 }
 
 export function ResourcePanel() {
@@ -143,10 +190,11 @@ export function ResourcePanel() {
             {preview.items
               .filter((i) => i.exists)
               .map((i) => (
-                <div key={i.path} className="flex justify-between gap-2">
-                  <span className="truncate">{i.path}</span>
-                  <span className="shrink-0">{fmtBytes(i.size_bytes)}</span>
-                </div>
+                <CachePathRow
+                  key={i.path}
+                  path={i.path}
+                  size={fmtBytes(i.size_bytes)}
+                />
               ))}
             <div className="pt-1 text-right text-white/70">
               合计：{fmtBytes(preview.total_bytes)}
