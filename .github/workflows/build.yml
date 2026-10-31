@@ -21,6 +21,8 @@ env:
   MACOSX_DEPLOYMENT_TARGET: "10.14"
   # CI 连跑多架构构建，交给工作流在最后统一还原 tauri.conf.json
   SKIP_CONF_RESTORE: "1"
+  # OTA 总开关：secrets 不能用于 if 表达式，故先在 env 里求值，步骤 if 再读 env.OTA_ENABLED
+  OTA_ENABLED: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
   # —— 在线更新（OTA）开关：仅当配置了私钥时才启用，否则整条 OTA 链路自动跳过 ——
   # 端点指向 GitHub Release 里的 latest.json，随每次构建发布的最新版自动更新
   SWITCHKIT_UPDATE_ENDPOINTS: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' && format('https://github.com/{0}/releases/latest/download/latest.json', github.repository) || '' }}
@@ -73,7 +75,7 @@ jobs:
       # 启用 OTA 时，把 createUpdaterArtifacts + endpoints 注入 tauri.conf.json
       # （公钥 pubkey 已入库，无需改动；endpoints 仅在本次构建生效，最后还原）
       - name: 注入 OTA 配置
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        if: env.OTA_ENABLED == 'true'
         run: |
           python3 - <<'PY'
           import json
@@ -118,7 +120,7 @@ jobs:
       # 启用 OTA 时：生成 latest.json 并发布到 GitHub Release
       - name: 生成 latest.json 并发布 GitHub Release
         id: gen_ota
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        if: env.OTA_ENABLED == 'true'
         run: |
           set -euo pipefail
           VERSION="$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')"
@@ -156,7 +158,7 @@ jobs:
           echo "OTA 发布目录："; ls -lh ota
 
       - name: 发布到 GitHub Release
-        if: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+        if: env.OTA_ENABLED == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.gen_ota.outputs.version }}
