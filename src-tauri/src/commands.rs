@@ -4,7 +4,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 use serde_json::json;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, State};
 
 use crate::util;
 use crate::AppState;
@@ -343,16 +343,9 @@ pub async fn bt_disconnect(address: String) -> Result<bool, String> {
 /// 终止本进程拉起的 Swift 守护进程（幂等；复用外部实例时无句柄，不做处理）。
 /// 守护进程是 AppKit 常驻进程，不主动回收会占住 .app 包内二进制文件，
 /// 表现为「点了退出，但覆盖安装新版本时提示正在运行」。
-pub fn shutdown_sidecar(app: &AppHandle) {
-    if let Some(state) = app.try_state::<AppState>() {
-        if let Ok(mut guard) = state.sidecar.lock() {
-            if let Some(mut child) = guard.take() {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
-        }
-    }
-    // 端口兜底：清掉旧版本遗留的（无看门狗的）守护进程，避免升级后仍被占用
+pub fn shutdown_sidecar(_app: &AppHandle) {
+    // 守护进程由自身父进程看门狗在 App 退出时回收，本进程不再持有其句柄；
+    // 端口兜底：清掉旧版本遗留的守护进程，避免升级后仍被 9876 占用。
     crate::kill_port_holder();
 }
 

@@ -18,9 +18,6 @@ pub struct AppState {
     pub caffeinate: Mutex<Option<Child>>,
     /// 屏幕清洁是否处于「已收起全部前台窗口」状态（本应用维护）。
     pub screen_cleaned: Mutex<bool>,
-    /// 由本进程拉起的 Swift 守护进程句柄。必须持有：退出时主动终止，
-    /// 否则它是 AppKit 常驻进程，会一直占用 .app 包内的可执行文件。
-    pub sidecar: Mutex<Option<Child>>,
 }
 
 /// 清掉占用 9876 端口的进程（best-effort）。用于两处：
@@ -39,18 +36,18 @@ pub fn kill_port_holder() {
         .output();
 }
 
-/// 拉起 Swift 守护进程（蓝牙承载）。启动时若端口已被占用，先清掉可能的
-/// 陈旧/挂死守护再拉起本进程实例——单实例保证占用者必为残留进程。
-/// 返回**本进程新建**的子进程句柄；端口仍被外部占用无法拉起时返回 None。
-fn spawn_sidecar() -> Option<Child> {
+/// 拉起 Swift 守护进程（蓝牙承载），独立于 App 生命周期常驻。
+/// 端口已被占用（旧实例在跑）时直接跳过——守护自身带父进程看门狗，
+/// 父进程退出即自我回收，无需本进程持有其句柄。
+fn spawn_sidecar() {
     use std::net::TcpStream;
     use std::time::Duration;
     let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
         Ok(a) => a,
-        Err(_) => return None,
+        Err(_) => return,
     };
     if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
-        kill_port_holder();
+        return; // 已有实例在跑
     }
     // 产物路径：发布态在 exe 旁；开发态在 src-tauri/binaries/<名>-<triple>
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
@@ -67,18 +64,14 @@ fn spawn_sidecar() -> Option<Child> {
     );
     for path in candidates {
         if path.exists() {
-            // 传入父 PID：守护进程据此自我看门，App 异常退出时不会变成孤儿
-            if let Ok(child) = std::process::Command::new(&path)
-                .arg("--parent-pid")
-                .arg(std::process::id().to_string())
-                .spawn()
-            {
-                return Some(child);
+            // 守护进程独立于 App 生命周期：不持有句柄，避免 Rust 的 Child
+            // drop 在运行期释放时 SIGKILL 掉守护；其自带父进程看门狗负责回收。
+            if let Ok(child) = std::process::Command::new(&path).spawn() {
+                std::mem::forget(child);
             }
             break;
         }
     }
-    None
 }
 
 fn main() {
@@ -126,12 +119,11 @@ fn main() {
             // 包被替换/移动后修正开机自启指向（旧路径会让 launchd 拉起旧副本）
             store::repair_launch_agent();
 
-            // 先注册状态再拉守护进程：句柄要存进 AppState 以便退出时回收
-            let sidecar = spawn_sidecar();
+            // 拉起守护进程（独立常驻，不持有句柄）
+            spawn_sidecar();
             app.manage(AppState {
                 caffeinate: Mutex::new(None),
                 screen_cleaned: Mutex::new(false),
-                sidecar: Mutex::new(sidecar),
             });
             Ok(())
         })
