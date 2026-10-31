@@ -142,8 +142,9 @@
   .note-center{border-left:none;padding-left:0}
 
   /* ---- install screenshots ---- */
-  .shots{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:18px}
-  @media(max-width:560px){.shots{grid-template-columns:1fr}}
+  .shots-block{margin-top:28px}
+  .shots-title{font-size:18px;margin-bottom:16px;display:flex;align-items:center;gap:9px}
+  .shots{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px}
   .shots figure{margin:0;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
   .shots img{width:100%;height:auto;max-width:100%;min-width:0;display:block;background:#fff}
   .shots figcaption{font-size:13px;color:var(--muted);padding:11px 13px;line-height:1.55}
@@ -353,13 +354,7 @@
           <li><b>解压并拖入应用程序</b>。在本地双击解压得到 <b>SwitchKit.app</b>，把它拖进 <code>/Applications</code>（「应用程序」文件夹）。不要在压缩包内直接双击运行。</li>
           <li><b>首次启动</b>。打开「应用程序」文件夹，<b>直接点 SwitchKit 图标打开</b>（无需在 Finder 里右键）。macOS 会弹出安全警告，按下方 4 步放行即可，只需一次。</li>
         </ol>
-        <div class="shots">
-          <figure><img src="assets/install-gatekeeper-blocked.png" alt="macOS 拦截提示：未打开 SwitchKit" loading="lazy"><figcaption><b>① 安全警告</b>。双击打开后弹出「未打开"SwitchKit"」，提示 Apple 无法验证其安全性。点「完成」关掉即可，这是正常现象。</figcaption></figure>
-          <figure><img src="assets/install-privacy-security.png" alt="系统设置 - 隐私与安全性 - 仍要打开" loading="lazy"><figcaption><b>② 前往放行</b>。打开「系统设置 → 隐私与安全性」，底部出现「已阻止"SwitchKit"以保护 Mac」，点击「仍要打开」。</figcaption></figure>
-          <figure><img src="assets/install-open-anyway.png" alt="确认打开 SwitchKit" loading="lazy"><figcaption><b>③ 确认打开</b>。再次弹出「打开"SwitchKit"?」，点击「仍要打开」。</figcaption></figure>
-          <figure><img src="assets/install-touchid-auth.png" alt="触控 ID 或管理员密码授权" loading="lazy"><figcaption><b>④ 授权启动</b>。用触控 ID 或输入管理员密码确认，App 随即启动并常驻菜单栏。</figcaption></figure>
-        </div>
-        <p class="note" style="margin-top:18px">启动后<b>没有 Dock 图标</b>，点菜单栏上的 SwitchKit 图标即可展开面板。若上述步骤仍提示「已损坏，无法打开」，在终端执行下面命令移除隔离属性后重试：</p>
+        <p class="note" style="margin-top:18px">启动后<b>没有 Dock 图标</b>，点菜单栏上的 SwitchKit 图标即可展开面板。若下方步骤仍提示「已损坏，无法打开」，在终端执行下面命令移除隔离属性后重试：</p>
         <div class="copy">
           <button onclick="copyCmd(this)">复制</button>
 <pre>xattr -dr com.apple.quarantine /Applications/SwitchKit.app</pre>
@@ -387,6 +382,15 @@ rm -f ~/Library/LaunchAgents/com.switchkit.app.plist
 rm -rf /Applications/SwitchKit.app
 rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
         </div>
+      </div>
+    </div>
+    <div class="shots-block">
+      <h3 class="shots-title">📸 首次启动放行示意（4 步）</h3>
+      <div class="shots">
+        <figure><img src="assets/install-gatekeeper-blocked.png" alt="macOS 拦截提示：未打开 SwitchKit" loading="lazy"><figcaption><b>① 安全警告</b>。双击打开后弹出「未打开"SwitchKit"」，提示 Apple 无法验证其安全性。点「完成」关掉即可，这是正常现象。</figcaption></figure>
+        <figure><img src="assets/install-privacy-security.png" alt="系统设置 - 隐私与安全性 - 仍要打开" loading="lazy"><figcaption><b>② 前往放行</b>。打开「系统设置 → 隐私与安全性」，底部出现「已阻止"SwitchKit"以保护 Mac」，点击「仍要打开」。</figcaption></figure>
+        <figure><img src="assets/install-open-anyway.png" alt="确认打开 SwitchKit" loading="lazy"><figcaption><b>③ 确认打开</b>。再次弹出「打开"SwitchKit"?」，点击「仍要打开」。</figcaption></figure>
+        <figure><img src="assets/install-touchid-auth.png" alt="触控 ID 或管理员密码授权" loading="lazy"><figcaption><b>④ 授权启动</b>。用触控 ID 或输入管理员密码确认，App 随即启动并常驻菜单栏。</figcaption></figure>
       </div>
     </div>
   </div>
