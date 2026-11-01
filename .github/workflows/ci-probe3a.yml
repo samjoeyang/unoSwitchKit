@@ -1,0 +1,13 @@
+name: CI Probe 3a (macOS only, read, no secrets)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-14
+    steps:
+      - run: |
+          echo "probe3a start $(date)"
+          sleep 30
+          echo "probe3a done —— 若看到这行说明 macos-14 runner 本身没问题"
