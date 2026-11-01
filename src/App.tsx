@@ -7,10 +7,8 @@ import { SettingsSection } from "./components/SettingsSection";
 import { StatusDot } from "./components/StatusDot";
 import { api } from "./ipc";
 import { checkAndInstall } from "./update";
+import { getVersion } from "@tauri-apps/api/app";
 import type { ToggleStates } from "./types";
-
-/// 应用版本（设置面板「检查更新」中展示）
-const APP_VERSION = "0.4.1";
 
 export default function App() {
   const [states, setStates] = useState<ToggleStates | null>(null);
@@ -25,6 +23,8 @@ export default function App() {
   const [balanceVersion, setBalanceVersion] = useState(0);
   // 设置项操作提示（alert 在 WKWebView 中被禁用，改用面板内提示）
   const [notice, setNotice] = useState<string | null>(null);
+  // 应用版本：运行时从二进制读取（getVersion），避免硬编码与发布版本脱节
+  const [appVersion, setAppVersion] = useState("0.4.2");
 
   async function refresh() {
     try {
@@ -62,6 +62,7 @@ export default function App() {
     loadLaunch();
     loadSidecar();
     loadUpdateConfig();
+    getVersion().then(setAppVersion).catch(() => {});
     const t = setInterval(loadSidecar, 5000);
     // 面板每次重新显示时刷新（避免托盘弹出后显示过期状态，如废纸篓计数）
     const onVis = () => {
@@ -152,7 +153,7 @@ export default function App() {
             </span>
           )}
         </div>
-        <span className="text-[10px] text-white/40">v{APP_VERSION}</span>
+        <span className="text-[10px] text-white/40">v{appVersion}</span>
       </div>
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
@@ -165,7 +166,7 @@ export default function App() {
 
       {showSettings && (
         <SettingsSection
-          version={APP_VERSION}
+          version={appVersion}
           launch={launch}
           onToggleLaunch={toggleLaunch}
           updating={updating}
