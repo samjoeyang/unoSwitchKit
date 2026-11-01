@@ -69,13 +69,53 @@ fn spawn_sidecar() {
     );
     for path in candidates {
         if path.exists() {
+            // 下载的包会被系统打 com.apple.quarantine，ad-hoc 自签名（本仓库无
+            // Developer ID 证书）的 sidecar 因此被 Gatekeeper 拦截、9876 起不来、
+            // 面板「原生守护」始终不亮。复制到可写目录并去掉隔离属性后再拉起，
+            // 是「无证书也能让下载包装亮」的可行解法（无需用户手动 xattr）。
+            #[cfg(target_os = "macos")]
+            let run_path = prepare_daemon_macos(&path);
+            #[cfg(not(target_os = "macos"))]
+            let run_path = path.clone();
+
             // 守护进程独立于 App 生命周期：不持有句柄，避免 Rust 的 Child
             // drop 在运行期释放时 SIGKILL 掉守护；其自带父进程看门狗负责回收。
-            if let Ok(child) = std::process::Command::new(&path).spawn() {
+            if let Ok(child) = std::process::Command::new(&run_path).spawn() {
                 std::mem::forget(child);
             }
             break;
         }
+    }
+}
+
+/// macOS 专用：把守护复制到可写临时目录并去掉下载隔离属性，返回实际可执行路径。
+/// 为什么需要：CI / 邮件 / Release 下载的包经浏览器/邮件保存后会被系统打
+/// `com.apple.quarantine`，而本仓库没有 Developer ID 证书、只能 ad-hoc 自签名，
+/// 于是 Gatekeeper 在 App 拉起这个 sidecar 时拦截它，端口 9876 起不来、原生守护不亮。
+/// 复制到 /tmp 后该副本不带隔离属性（Rust 的 std::fs::copy 不携带 xattr，再显式
+/// 清一次兜底），与普通 ad-hoc 二进制无异，Gatekeeper 不再拦截。
+#[cfg(target_os = "macos")]
+fn prepare_daemon_macos(src: &std::path::Path) -> std::path::PathBuf {
+    let dest = std::env::temp_dir().join("switchkit-daemon");
+    // 复制失败（极端情况）则退回原路径，并在原路径上尽量去隔离。
+    if std::fs::copy(src, &dest).is_err() {
+        strip_quarantine(src);
+        return src.to_path_buf();
+    }
+    strip_quarantine(&dest);
+    dest
+}
+
+/// 清掉下载隔离属性（best-effort，属性不存在时忽略报错）。
+#[cfg(target_os = "macos")]
+fn strip_quarantine(path: &std::path::Path) {
+    for attr in [
+        "com.apple.quarantine",
+        "com.apple.metadata:com_apple_quarantine",
+    ] {
+        let _ = std::process::Command::new("xattr")
+            .args(["-d", attr, &path.to_string_lossy()])
+            .output();
     }
 }
 
