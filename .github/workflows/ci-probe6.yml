@@ -1,0 +1,19 @@
+name: CI Probe 6 (macos-15 Xcode_16.0 Swift version)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-15
+    steps:
+      - name: 锁定 Xcode_16.0 并查看 Swift 版本（确认是否为 Swift 5.10）
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+          xcodebuild -version
+          echo "--- swift --version ---"
+          swift --version
+          echo "--- swiftc --version ---"
+          swiftc --version
+          echo 'print("hello from swift on Xcode_16.0")' > /tmp/t.swift
+          swift /tmp/t.swift
