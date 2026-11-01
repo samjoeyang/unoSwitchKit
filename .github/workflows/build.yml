@@ -35,7 +35,11 @@ env:
 jobs:
   build:
     name: macOS 三架构构建 + OTA 发布
-    runs-on: macos-latest   # GitHub 托管的 macOS 自带 Xcode/Swift，可交叉编译 x86_64 与 aarch64
+    # 锁定 macOS 14 + Xcode 15（Swift 5.10，Swift 5 系）。根因：dev 环境用 Xcode 14.2/Swift 5.7.2
+    # 编的守护在目标 M 系列 Mac 上能亮，而 macos-latest(Xcode 26/Swift 6) 编的守护起不来——差异纯在
+    # Swift 工具链，与架构/签名/quarantine 无关。降到 Swift 5.x 即与 dev 同代，守护行为一致。
+    # 若仍异常，可再降到 macos-13 + Xcode 14.3.1(Swift 5.8) 以更贴近 dev 的 5.7.2。
+    runs-on: macos-14
     steps:
       - name: 拉取代码
         uses: actions/checkout@v4
@@ -51,8 +55,25 @@ jobs:
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
+      # Xcode 选择必须在 build-release.sh 调用 swiftc 编守护之前（swiftc 取自被锁定的 Xcode）
+
+      - name: 锁定 Xcode 15（Swift 5.x，避开 Xcode 26/Swift 6 守护运行时问题）
+        run: |
+          for xc in /Applications/Xcode_15.4.app /Applications/Xcode_15.3.app \
+                    /Applications/Xcode_15.2.app /Applications/Xcode_15.1.app /Applications/Xcode_15.0.app; do
+            if [ -d "$xc" ]; then sudo xcode-select -s "$xc/Contents/Developer"; echo "selected $xc"; break; fi
+          done
+          xcodebuild -version
+
       - name: 确认 Swift 工具链
-        run: swift --version
+        run: |
+          swift --version
+          # 安全网：若 Xcode 锁定失败仍落到 Swift 6，明确报错而非产出坏包
+          if swift --version | grep -q "Swift 6"; then
+            echo "❌ 仍为 Swift 6，Xcode 锁定失败，守护将仍无法在目标 Mac 上点亮"; exit 1
+          else
+            echo "✅ 已使用 Swift 5.x（与 dev 环境同代）"
+          fi
 
       # 苹果签名/公证密钥：仅在 secret 真实存在时才注入环境变量。
       # 关键坑：若把 APPLE_CERTIFICATE 设为空串，Tauri 会误以为要签名并去 security import 空串 → 报错；
