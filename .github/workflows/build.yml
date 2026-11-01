@@ -6,10 +6,9 @@ name: Build macOS (Intel / Apple Silicon / Universal)
 on:
   workflow_dispatch:
 
-# 同一分支的多次提交只保留最新一次运行
-concurrency:
-  group: build-macos-${{ github.ref }}
-  cancel-in-progress: true
+# 排查发现：原 concurrency.cancel-in-progress:true 在 workflow_dispatch 下会造成 run 被级联取消
+# （极简无并发的 ci-probe 能正常跑完，证明问题在 build.yml 的并发配置）。临时整段移除，
+# 待确认构建可正常完成后，如需并发控制再改用非取消策略（如 cancel-in-progress:false + 排队）。
 
 # 发布 GitHub Release（含 OTA 更新 manifest）需要写权限
 permissions:
