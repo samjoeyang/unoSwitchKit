@@ -2,6 +2,21 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.4.2] - 2026-11-01
+
+### 修复：下载的包「原生守护」点不亮（Gatekeeper 隔离拦截）
+
+**问题**
+
+- 0.4.1 及之前：从 CI/Release/邮件下载的包（本仓库无 Developer ID 证书，只能 ad-hoc 自签名）被系统打 `com.apple.quarantine`，Gatekeeper 在 App 拉起 `switchkit-daemon` 这个 sidecar 时拦截它，端口 127.0.0.1:9876 起不来，面板「原生守护」始终不亮。dev/本地构建不带隔离属性，故表现正常。
+- 关键认知修正：`std::fs::copy` 在 macOS 上**会**把源文件的 xattr（含 quarantine）一并拷到目标，所以复制后必须显式去隔离；且 GUI 启动（双击/LaunchPad/登录项）的 App 进程 PATH 仅 `/usr/bin:/bin`，裸 `xattr` 解析不到，须用绝对路径 `/usr/bin/xattr`。
+
+**修复**
+
+- `src-tauri/src/main.rs`：`spawn_sidecar` 拉起守护前先 `prepare_daemon_macos`——把 `switchkit-daemon` 复制到临时目录，对**源与副本各做一次** `xattr -d com.apple.quarantine`（绝对路径，defense-in-depth），再 `chmod 0o755` 兜底，最后从临时副本 spawn。用户无需手动 `xattr`。
+- 主程序本身仍是 ad-hoc，需首次右键「打开」批准（固有行为）；守护这一步已自动处理。
+- 本次升 0.4.2 仅换下载链接 + 走 OTA 自动更新，规避「覆盖同版本号发布不改 URL 导致浏览器缓存旧包」的问题。
+
 ## [0.4.1] - 2026-10-31
 
 ### 构建：分发包默认 universal，修正「提示安装 Rosetta」与最低系统版本错配
