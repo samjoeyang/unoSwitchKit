@@ -7,12 +7,9 @@ on:
   workflow_dispatch:
 
 # 同一分支的多次提交只保留最新一次运行
-# 注：cancel-in-progress 已临时改为 false 以排查「run 启动后被秒取消」问题
-# （实测每次 dispatch 都在 1-3s 内被 cancelled，且最新 run 也被取消，违反 cancel-in-progress
-# 「 newest 存活」语义，故怀疑为外部 cancel；改 false 后若仍被取消即可坐实外部取消源）
 concurrency:
   group: build-macos-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 # 发布 GitHub Release（含 OTA 更新 manifest）需要写权限
 permissions:
