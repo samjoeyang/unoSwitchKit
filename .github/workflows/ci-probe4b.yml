@@ -1,0 +1,15 @@
+name: CI Probe 4b (macos-latest, read, echo)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-latest
+    steps:
+      - run: |
+          echo "probe4b macos-latest start $(date)"
+          sw_vers -productVersion
+          xcodebuild -version 2>/dev/null | head -1 || echo "no xcodebuild"
+          sleep 20
+          echo "probe4b done —— macos-latest 可用"

@@ -1,0 +1,15 @@
+name: CI Probe 4a (macos-13, read, echo)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-13
+    steps:
+      - run: |
+          echo "probe4a macos-13 start $(date)"
+          sw_vers -productVersion
+          xcodebuild -version 2>/dev/null | head -1 || echo "no xcodebuild"
+          sleep 20
+          echo "probe4a done —— macos-13 可用"
