@@ -92,28 +92,37 @@ fn spawn_sidecar() {
 /// 为什么需要：CI / 邮件 / Release 下载的包经浏览器/邮件保存后会被系统打
 /// `com.apple.quarantine`，而本仓库没有 Developer ID 证书、只能 ad-hoc 自签名，
 /// 于是 Gatekeeper 在 App 拉起这个 sidecar 时拦截它，端口 9876 起不来、原生守护不亮。
-/// 复制到 /tmp 后该副本不带隔离属性（Rust 的 std::fs::copy 不携带 xattr，再显式
-/// 清一次兜底），与普通 ad-hoc 二进制无异，Gatekeeper 不再拦截。
+/// 复制到 /tmp 后该副本不带隔离属性，与普通 ad-hoc 二进制无异，Gatekeeper 不再拦截。
+///
+/// 注意：`std::fs::copy` 在 macOS 上【会】把源文件的 xattr（含 quarantine）一并拷到
+/// 目标，所以 copy 之后必须显式去隔离；同时 GUI 启动（双击/LaunchPad/登录项）时进程
+/// PATH 仅含 /usr/bin:/bin，裸 `xattr` 不一定可用，故一律用绝对路径 /usr/bin/xattr。
 #[cfg(target_os = "macos")]
 fn prepare_daemon_macos(src: &std::path::Path) -> std::path::PathBuf {
     let dest = std::env::temp_dir().join("switchkit-daemon");
     // 复制失败（极端情况）则退回原路径，并在原路径上尽量去隔离。
-    if std::fs::copy(src, &dest).is_err() {
-        strip_quarantine(src);
-        return src.to_path_buf();
+    match std::fs::copy(src, &dest) {
+        Ok(_) => {}
+        Err(_) => { strip_quarantine(src); return src.to_path_buf(); }
     }
+    // 兜底：源二进制若仍带隔离也一并清掉（defense-in-depth）
+    strip_quarantine(src);
     strip_quarantine(&dest);
+    // 确保副本可执行（fs::copy 在某些情形下目标权限可能不含 +x）
+    let _ = std::fs::set_permissions(&dest, std::os::unix::fs::PermissionsExt::from_mode(0o755));
     dest
 }
 
 /// 清掉下载隔离属性（best-effort，属性不存在时忽略报错）。
+/// 必须用绝对路径 /usr/bin/xattr：GUI 启动的 App 进程 PATH 仅 /usr/bin:/bin，
+/// 裸 `xattr` 在某些情况下解析不到；同文件里 kill_port_holder 已对 lsof 用过同样的绝对路径写法。
 #[cfg(target_os = "macos")]
 fn strip_quarantine(path: &std::path::Path) {
     for attr in [
         "com.apple.quarantine",
         "com.apple.metadata:com_apple_quarantine",
     ] {
-        let _ = std::process::Command::new("xattr")
+        let _ = std::process::Command::new("/usr/bin/xattr")
             .args(["-d", attr, &path.to_string_lossy()])
             .output();
     }
