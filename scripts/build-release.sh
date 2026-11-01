@@ -56,7 +56,7 @@ fi
 # $1 架构（swiftc 用 arm64 / x86_64），$2 输出路径
 swift_daemon() {
   ( cd src-tauri/swift && swiftc -O -target "$1-apple-macosx${MACOS_MIN}" \
-      -framework AppKit -framework Network -framework IOBluetooth \
+      -framework AppKit -framework IOBluetooth \
       main.swift bridge.swift bluetooth.swift \
       -o "$2" )
 }

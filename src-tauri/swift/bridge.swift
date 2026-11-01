@@ -1,9 +1,13 @@
 // SwitchKit sidecar 桥接层：JSON 行协议编解码 + 原生能力封装。
-// 被 daemon.swift 引用，随其一起编译。
+// 被 main.swift 引用，随其一起编译。
+//
+// 网络层使用「裸 BSD socket」（recv/send + DispatchSourceRead），不使用 Network 框架：
+//   - 不依赖任何 runloop/事件循环泵送，进程用 dispatchMain() 常驻即可；
+//   - 绕开本机网络扩展（如 Tailscale）对 Network 框架 bind 的拦截——本机实测
+//     NWListener 在 9876 上永远无法就绪，而裸 BSD socket 可正常监听。
 
 import Foundation
 import AppKit
-import Network
 import IOBluetooth
 
 // 协议常量
@@ -11,37 +15,62 @@ let PROTOCOL_LINE_SEP: UInt8 = 10 // '\n'
 
 /// 单条连接的处理封装：逐行读取 JSON 命令并回写 JSON 响应。
 class Connection {
-    let conn: NWConnection
+    let fd: Int32
     private var buffer = Data()
+    private var source: DispatchSourceRead?
+    private var retainToken: Unmanaged<Connection>?
 
-    init(conn: NWConnection) { self.conn = conn }
+    init(fd: Int32) { self.fd = fd }
 
-    func serve() { receive() }
+    func serve() {
+        // 自身保活：连接存续期间持有一个强引用，cancel 时释放。
+        retainToken = Unmanaged.passRetained(self)
 
-    private func receive() {
-        conn.receive(minimumIncompleteLength: 1, maximumLength: 4096) {
-            data,
-            _,
-            _,
-            error in
-            if let data = data, !data.isEmpty {
-                self.buffer.append(data)
-                while let idx = self.buffer.firstIndex(of: PROTOCOL_LINE_SEP) {
-                    let line = self.buffer.subdata(in: 0..<idx)
-                    if idx + 1 < self.buffer.count {
-                        self.buffer.removeSubrange(0...idx)
-                    } else {
-                        self.buffer.removeAll()
-                    }
-                    if let str = String(data: line, encoding: .utf8) {
-                        self.process(message: str)
-                    }
-                }
+        // 非阻塞：DispatchSourceRead 仅在可读时回调，但 accept 得到的新 fd 默认阻塞，
+        // 设为非阻塞避免偶发情况下的队列阻塞。
+        var flags = fcntl(fd, F_GETFL, 0)
+        flags |= O_NONBLOCK
+        _ = fcntl(fd, F_SETFL, flags)
+
+        let s = DispatchSource.makeReadSource(
+            fileDescriptor: fd, queue: .global(qos: .userInitiated))
+        source = s
+        s.setEventHandler { [weak self] in self?.onReadable() }
+        s.setCancelHandler { [weak self] in self?.cleanup() }
+        s.resume()
+    }
+
+    private func onReadable() {
+        var buf = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let n = buf.withUnsafeMutableBytes { ptr in
+                read(fd, ptr.baseAddress!, ptr.count)
             }
-            if error == nil {
-                self.receive()
+            if n > 0 {
+                buffer.append(Data(bytes: buf, count: n))
+                drainLines()
+            } else if n == 0 {
+                // 对端关闭
+                source?.cancel()
+                return
             } else {
-                self.conn.cancel()
+                if errno == EAGAIN { return }
+                source?.cancel()
+                return
+            }
+        }
+    }
+
+    private func drainLines() {
+        while let idx = buffer.firstIndex(of: PROTOCOL_LINE_SEP) {
+            let line = buffer.subdata(in: 0..<idx)
+            if idx + 1 < buffer.count {
+                buffer.removeSubrange(0...idx)
+            } else {
+                buffer.removeAll()
+            }
+            if let str = String(data: line, encoding: .utf8) {
+                process(message: str)
             }
         }
     }
@@ -90,8 +119,27 @@ class Connection {
             let data = try? JSONSerialization.data(withJSONObject: dict),
             let str = String(data: data, encoding: .utf8)
         else { return }
-        let payload = (str + "\n").data(using: .utf8)!
-        conn.send(content: payload, completion: .contentProcessed { _ in })
+        let bytes = [UInt8](str.utf8) + [PROTOCOL_LINE_SEP]
+        var off = 0
+        while off < bytes.count {
+            let w = bytes.withUnsafeBytes { ptr in
+                write(fd, ptr.baseAddress!.advanced(by: off), bytes.count - off)
+            }
+            if w < 0 { return }
+            off += Int(w)
+        }
+    }
+
+    private func cleanup() {
+        close(fd)
+        source = nil
+        retainToken?.release()
+        retainToken = nil
+    }
+
+    deinit {
+        // 兜底：若 source 未触发 cancel，这里确保 fd 关闭。
+        close(fd)
     }
 }
 

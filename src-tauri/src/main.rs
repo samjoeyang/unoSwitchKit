@@ -46,6 +46,11 @@ fn spawn_sidecar() {
         Ok(a) => a,
         Err(_) => return,
     };
+    // 升级/异常退出残留：清掉占用 9876 的旧守护，确保拉起的是本次构建的健康守护。
+    // 否则会复用残留的旧守护，状态探测超时、面板显示「原生守护未运行」。
+    // （此前 693dc59 回退时误删了 dffe193 的这步清理，导致升级后原生守护不亮。）
+    kill_port_holder();
+    // 清掉后重新探测：若仍有实例在跑（kill 失败等极端情况），复用现有守护。
     if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
         return; // 已有实例在跑
     }
