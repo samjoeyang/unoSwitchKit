@@ -1,0 +1,21 @@
+name: CI Probe 5 (macos-15 Xcode 清单 + Swift 5.x 可行性)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-15
+    steps:
+      - name: 列出可用的 Xcode 与默认 Swift 版本
+        run: |
+          echo "=== OS ==="
+          sw_vers -productVersion
+          echo "=== /Applications 下的 Xcode ==="
+          ls -d /Applications/Xcode*.app 2>/dev/null || echo "无 Xcode 目录"
+          echo "=== 默认 xcodebuild -version ==="
+          xcodebuild -version 2>/dev/null || echo "no xcodebuild"
+          echo "=== 尝试锁定 Xcode_15 并查 Swift 版本 ==="
+          if [ -d /Applications/Xcode_15.4.app ]; then sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer && echo "已切到 15.4"; xcodebuild -version; swift --version; fi
+          if [ -d /Applications/Xcode_15.3.app ]; then sudo xcode-select -s /Applications/Xcode_15.3.app/Contents/Developer && echo "已切到 15.3"; xcodebuild -version; swift --version; fi
+          if [ -d /Applications/Xcode_15.2.app ]; then sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer && echo "已切到 15.2"; xcodebuild -version; swift --version; fi
