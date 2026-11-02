@@ -71,21 +71,25 @@ fn spawn_sidecar() {
         if !path.exists() {
             continue;
         }
-        // 优先直接拉起 bundle 内守护：用户右键「打开」app 后，整个 app bundle 的
-        // quarantine 已被 Gatekeeper 清除，bundle 内（随 app 一起 ad-hoc 签名）的
-        // 守护处于「受信任的 bundle 签名上下文」中，可直接 spawn。
-        // 早期版本把守护复制到 /tmp 去隔离再 spawn，但在 macOS 26+ 上，脱离
-        // application bundle 的 /tmp 副本（即使已去隔离）反而更易被 AMFI/Gatekeeper
-        // 拦截，导致 9876 起不来——这就是「下载包装不亮、就地构建的亮」的真因。
-        // 故默认走 bundle 内，仅在 bundle 内拉起失败（极端环境下仍残留隔离等）
-        // 时，才退回到 /tmp 去隔离方案。
+        // 关键（Apple Silicon 修复）：先清掉嵌套守护自身的隔离属性再 spawn。
+        // 用户「右键→打开」只清掉 .app 顶层 quarantine，但 bundle 内这个独立
+        // Mach-O（ad-hoc 签名、哈希与主程序不同）在 Apple Silicon 上仍会被 AMFI
+        // 当作「新的隔离二进制」拦截——Intel 无 AMFI 故放行。去掉它的 quarantine
+        // xattr 后 AMFI 不再拦截，这是 9876 能起来的前提（xattr 不计入代码签名
+        // 哈希，删隔离属性不会破坏 app 签名）。
+        #[cfg(target_os = "macos")]
+        strip_quarantine(&path);
+        // 优先直接拉起 bundle 内守护（已清隔离，Apple Silicon 上 AMFI 放行）。
         if try_spawn_daemon(&path) {
             return;
         }
+        // bundle 内仍拉不起（极端环境），退回到 Application Support 副本。
+        // 早期用 /tmp 去隔离，但 macOS 26+ 对脱离 bundle 的 /tmp 副本反而更严、
+        // 易被 AMFI 拦，故改放用户可写的 Application Support（非下载隔离树）。
         #[cfg(target_os = "macos")]
         {
-            let tmp = prepare_daemon_macos(&path);
-            let _ = try_spawn_daemon(&tmp);
+            let dest = prepare_daemon_macos(&path);
+            let _ = try_spawn_daemon(&dest);
         }
         return;
     }
@@ -112,18 +116,26 @@ fn try_spawn_daemon(path: &std::path::Path) -> bool {
     false
 }
 
-/// macOS 专用：把守护复制到可写临时目录并去掉下载隔离属性，返回实际可执行路径。
+/// macOS 专用：把守护复制到用户可写目录并去掉下载隔离属性，返回实际可执行路径。
 /// 为什么需要：CI / 邮件 / Release 下载的包经浏览器/邮件保存后会被系统打
 /// `com.apple.quarantine`，而本仓库没有 Developer ID 证书、只能 ad-hoc 自签名，
-/// 于是 Gatekeeper 在 App 拉起这个 sidecar 时拦截它，端口 9876 起不来、原生守护不亮。
-/// 复制到 /tmp 后该副本不带隔离属性，与普通 ad-hoc 二进制无异，Gatekeeper 不再拦截。
+/// 于是 Gatekeeper/AMFI 在 App 拉起这个 sidecar 时拦截它，端口 9876 起不来、原生守护不亮。
+/// 复制到 Application Support 后该副本不带隔离属性，与普通 ad-hoc 二进制无异。
 ///
-/// 注意：`std::fs::copy` 在 macOS 上【会】把源文件的 xattr（含 quarantine）一并拷到
-/// 目标，所以 copy 之后必须显式去隔离；同时 GUI 启动（双击/LaunchPad/登录项）时进程
-/// PATH 仅含 /usr/bin:/bin，裸 `xattr` 不一定可用，故一律用绝对路径 /usr/bin/xattr。
+/// 注意：早期实现放 /tmp，但 macOS 26+ 对脱离 app bundle 的 /tmp 副本反而更严、易被
+/// AMFI 拦；Application Support 在用户可写域、非下载隔离树，放行更稳。
+/// `std::fs::copy` 在 macOS 上【会】把源文件的 xattr（含 quarantine）一并拷到目标，
+/// 所以 copy 之后必须显式去隔离；GUI 启动（双击/LaunchPad/登录项）时进程 PATH 仅含
+/// /usr/bin:/bin，裸 `xattr` 不一定可用，故一律用绝对路径 /usr/bin/xattr。
 #[cfg(target_os = "macos")]
 fn prepare_daemon_macos(src: &std::path::Path) -> std::path::PathBuf {
-    let dest = std::env::temp_dir().join("switchkit-daemon");
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let dir = std::path::Path::new(&home)
+        .join("Library")
+        .join("Application Support")
+        .join("com.switchkit.app");
+    let dest = dir.join("switchkit-daemon");
+    std::fs::create_dir_all(&dir).ok();
     // 复制失败（极端情况）则退回原路径，并在原路径上尽量去隔离。
     match std::fs::copy(src, &dest) {
         Ok(_) => {}
