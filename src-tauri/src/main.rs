@@ -68,24 +68,48 @@ fn spawn_sidecar() {
             .join(format!("switchkit-daemon-{}", triple)),
     );
     for path in candidates {
-        if path.exists() {
-            // 下载的包会被系统打 com.apple.quarantine，ad-hoc 自签名（本仓库无
-            // Developer ID 证书）的 sidecar 因此被 Gatekeeper 拦截、9876 起不来、
-            // 面板「原生守护」始终不亮。复制到可写目录并去掉隔离属性后再拉起，
-            // 是「无证书也能让下载包装亮」的可行解法（无需用户手动 xattr）。
-            #[cfg(target_os = "macos")]
-            let run_path = prepare_daemon_macos(&path);
-            #[cfg(not(target_os = "macos"))]
-            let run_path = path.clone();
-
-            // 守护进程独立于 App 生命周期：不持有句柄，避免 Rust 的 Child
-            // drop 在运行期释放时 SIGKILL 掉守护；其自带父进程看门狗负责回收。
-            if let Ok(child) = std::process::Command::new(&run_path).spawn() {
-                std::mem::forget(child);
-            }
-            break;
+        if !path.exists() {
+            continue;
         }
+        // 优先直接拉起 bundle 内守护：用户右键「打开」app 后，整个 app bundle 的
+        // quarantine 已被 Gatekeeper 清除，bundle 内（随 app 一起 ad-hoc 签名）的
+        // 守护处于「受信任的 bundle 签名上下文」中，可直接 spawn。
+        // 早期版本把守护复制到 /tmp 去隔离再 spawn，但在 macOS 26+ 上，脱离
+        // application bundle 的 /tmp 副本（即使已去隔离）反而更易被 AMFI/Gatekeeper
+        // 拦截，导致 9876 起不来——这就是「下载包装不亮、就地构建的亮」的真因。
+        // 故默认走 bundle 内，仅在 bundle 内拉起失败（极端环境下仍残留隔离等）
+        // 时，才退回到 /tmp 去隔离方案。
+        if try_spawn_daemon(&path) {
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let tmp = prepare_daemon_macos(&path);
+            let _ = try_spawn_daemon(&tmp);
+        }
+        return;
     }
+}
+
+/// spawn 守护进程并探测 9876 是否在 ~1s 内就绪；就绪返回 true。
+/// 守护独立常驻：不持有句柄（std::mem::forget），由其自带父进程看门狗回收。
+fn try_spawn_daemon(path: &std::path::Path) -> bool {
+    use std::net::TcpStream;
+    use std::time::Duration;
+    let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    if std::process::Command::new(path).spawn().is_err() {
+        return false;
+    }
+    for _ in 0..20 {
+        if TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    false
 }
 
 /// macOS 专用：把守护复制到可写临时目录并去掉下载隔离属性，返回实际可执行路径。
