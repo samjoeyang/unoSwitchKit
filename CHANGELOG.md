@@ -2,6 +2,24 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.4.4] - 2026-11-03
+
+### 诊断：原生守护全生命周期日志插桩（定位「守护不亮」根因用）
+
+**背景**
+
+- 0.4.2/0.4.3 连续两个版本在 Apple 芯片真机上「原生守护不亮」，但沙箱（Intel macOS、无 GUI）无法复现，根因推断反复被环境差异误导。核心盲区：GUI 启动（双击 / LaunchPad / 登录项）的 App 进程无 tty，`stderr` 被丢弃，且此前守护从未真正落盘日志，导致「守护有没有被拉起、卡在哪一步」在真机上完全不可见。
+
+**改动**
+
+- `src-tauri/src/main.rs`（Rust 侧，主程序）：新增 `switchkit-rust.log` 插桩，覆盖 `spawn_sidecar` 全链路——候选路径是否存在、去隔离（xattr）结果、spawn 是否成功（记录 pid）、9876 在 ~1s 内是否就绪、未就绪时进程是否还活着；并把守护的 `stderr` 重定向到 `switchkit-daemon.log` 统一收集。
+- `src-tauri/swift/main.swift`（守护侧）：所有关键生命周期事件（启动、argv、bind/listen 结果、父进程看门狗）同时写 `stderr` 与 `~/Library/Logs/switchkit-daemon.log`（此前代码声称写该文件但实际未实现）。
+- 日志位置：`~/Library/Logs/switchkit-rust.log`（主程序）+ `~/Library/Logs/switchkit-daemon.log`（守护）；配合系统 `log show --predicate 'process == "amfid" || process == "syspolicyd"'` 可三角定位是否被 AMFI/Gatekeeper 在 exec 瞬间拦截。
+
+**目的**
+
+- 本版本不发功能修复，仅作为「带诊断日志的观测版」发到线上，由用户在真机手动安装测试，用两份日志回传定位 0.4.2/0.4.3 的根因，再据此做针对性修复。
+
 ## [0.4.3] - 2026-11-01
 
 ### 修复：设置面板显示的版本号与真实版本脱节

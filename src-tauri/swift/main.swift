@@ -11,20 +11,50 @@
 //
 // 网络层用「裸 BSD socket」而非 Network 框架：
 //   - 不依赖任何 runloop/事件循环泵送，进程用 dispatchMain() 常驻即可；
-//   - 绕开本机网络扩展（如 Tailscale）对 Network 框架 bind 的拦截——本机实测
-//     NWListener 在 9876 上始终无法就绪，裸 BSD socket 可正常监听。
+//   - 绕开本机网络扩展（如 Tailscale）对 Network 框架 bind 的拦截。
+//
+// 诊断日志：所有关键生命周期事件同时写 stderr 与
+//   ~/Library/Logs/switchkit-daemon.log
+// GUI 启动下 stderr 被丢弃，落盘后才能事后分析「守护为何没起来」。
 
 import Foundation
 import AppKit
 
 let port: UInt16 = 9876
 
+// ---- 诊断日志 ----
+let DAEMON_LOG = "\(NSHomeDirectory())/Library/Logs/switchkit-daemon.log"
+
+func dateStamp() -> String {
+    let df = DateFormatter()
+    df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
+    df.timeZone = TimeZone.current
+    return df.string(from: Date())
+}
+
+/// 同时写 stderr 与 ~/Library/Logs/switchkit-daemon.log。
+func skLog(_ msg: String) {
+    guard let data = "\(dateStamp()) [daemon] \(msg)\n".data(using: .utf8) else { return }
+    FileHandle.standardError.write(data)
+    let fm = FileManager.default
+    if !fm.fileExists(atPath: DAEMON_LOG) {
+        fm.createFile(atPath: DAEMON_LOG, contents: nil)
+    }
+    if let fh = FileHandle(forWritingAtPath: DAEMON_LOG) {
+        fh.seekToEndOfFile()
+        fh.write(data)
+        fh.closeFile()
+    }
+}
+
+skLog("=== SwitchKit sidecar launch ===")
+skLog("argv: \(CommandLine.arguments.joined(separator: " "))")
+
 /// 创建并绑定 loopback 监听 socket；失败返回 nil。
 func makeListener() -> Int32? {
     let fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
     guard fd >= 0 else {
-        FileHandle.standardError.write(
-            "sidecar: socket() failed\n".data(using: .utf8)!)
+        skLog("socket() failed: \(errno) (\(String(cString: strerror(errno))))")
         return nil
     }
     // SO_REUSEADDR：避免上一次退出残留的 TIME_WAIT 直接阻止本次 bind。
@@ -45,22 +75,23 @@ func makeListener() -> Int32? {
         }
     }
     guard bindOk == 0 else {
-        FileHandle.standardError.write(
-            "sidecar: bind(127.0.0.1:\(port)) failed: \(errno)\n"
-                .data(using: .utf8)!)
+        skLog("bind(127.0.0.1:\(port)) failed: \(errno) (\(String(cString: strerror(errno))))")
         close(fd)
         return nil
     }
     guard listen(fd, 16) == 0 else {
-        FileHandle.standardError.write(
-            "sidecar: listen() failed\n".data(using: .utf8)!)
+        skLog("listen() failed: \(errno) (\(String(cString: strerror(errno))))")
         close(fd)
         return nil
     }
+    skLog("makeListener: socket fd=\(fd) bound & listen queue ready")
     return fd
 }
 
-guard let listenFd = makeListener() else { exit(1) }
+guard let listenFd = makeListener() else {
+    skLog("FATAL: makeListener failed, exiting(1)")
+    exit(1)
+}
 
 // 接受连接：监听 socket 可读即 accept，交給 Connection 处理。
 let acceptSrc = DispatchSource.makeReadSource(
@@ -81,8 +112,7 @@ acceptSrc.resume()
 // 进程常驻，故意泄漏监听源
 _ = Unmanaged.passRetained(acceptSrc)
 
-FileHandle.standardError.write(
-    "sidecar: listening on 127.0.0.1:\(port)\n".data(using: .utf8)!)
+skLog("listening on 127.0.0.1:\(port)")
 
 // ---- 父进程看门狗 ----
 // 本进程是常驻进程（下面的 dispatchMain() 永不返回），若 App 退出时
@@ -96,6 +126,7 @@ if let i = CommandLine.arguments.firstIndex(of: "--parent-pid"),
    let v = pid_t(CommandLine.arguments[i + 1]) {
     parentPid = v
 }
+skLog("parent pid resolved to \(parentPid) (getppid=\(getppid()))")
 if parentPid > 1 {
     // 用内核的进程退出事件而不是轮询 kill(pid,0)：父进程被杀后若尚未被 reap
     // 会成为僵尸，kill(pid,0) 依旧返回成功，轮询式看门狗会漏判。
@@ -103,16 +134,15 @@ if parentPid > 1 {
     let src = DispatchSource.makeProcessSource(
         identifier: parentPid, eventMask: .exit, queue: .global())
     src.setEventHandler {
-        FileHandle.standardError.write(
-            "sidecar: parent \(parentPid) exited, shutting down\n"
-                .data(using: .utf8)!)
+        skLog("parent \(parentPid) exited, shutting down")
         exit(0)
     }
     src.resume()
     // 进程源不持有强引用链，需自己保住；daemon 常驻，故意泄漏
     _ = Unmanaged.passRetained(src)
-    FileHandle.standardError.write(
-        "sidecar: watching parent pid \(parentPid)\n".data(using: .utf8)!)
+    skLog("watching parent pid \(parentPid)")
+} else {
+    skLog("parent pid is 1 (launchd), watchdog disabled")
 }
 
 // 守护进程不依赖任何 UI（菜单栏收纳 menubar.swift 已移除），无需 NSApplication；

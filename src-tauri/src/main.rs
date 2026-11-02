@@ -13,6 +13,72 @@ use std::process::Child;
 use std::sync::Mutex;
 use tauri::Manager;
 
+// ---- 原生守护全生命周期日志（诊断用） ----
+// GUI 启动（双击 / LaunchPad / 登录项）的 App 进程没有 tty，stderr 被丢弃，
+// 因此必须把生命周期事件落盘到 ~/Library/Logs/，才能在用户真机上事后分析
+// 「守护为何没起来」。Swift 侧见 src-tauri/swift/main.swift 的同名日志。
+use std::io::Write;
+
+fn now_ts() -> String {
+    if let Ok(out) = std::process::Command::new("/bin/date")
+        .arg("+%Y-%m-%dT%H:%M:%S%z")
+        .output()
+    {
+        if out.status.success() {
+            if let Ok(s) = String::from_utf8(out.stdout) {
+                let t = s.trim().to_string();
+                if !t.is_empty() {
+                    return t;
+                }
+            }
+        }
+    }
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{}", secs)
+}
+
+/// 主程序（Rust）侧日志路径。
+fn rust_log_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::Path::new(&home)
+        .join("Library")
+        .join("Logs")
+        .join("switchkit-rust.log")
+}
+
+/// 守护（Swift）侧日志路径；守护自身的 stderr 也重定向到这里，便于一处收集。
+fn daemon_log_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    std::path::Path::new(&home)
+        .join("Library")
+        .join("Logs")
+        .join("switchkit-daemon.log")
+}
+
+fn lifecycle_log(msg: &str) {
+    let path = rust_log_path();
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut f) =
+        std::fs::OpenOptions::new().create(true).append(true).open(&path)
+    {
+        let _ = writeln!(f, "[{}] {}", now_ts(), msg);
+    }
+}
+
+/// 进程是否存活（kill -0 探测，不发送信号）。
+fn is_process_alive(pid: u32) -> bool {
+    std::process::Command::new("/bin/kill")
+        .args(["-0", &pid.to_string()])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// 全局可变状态：prevent-sleep 的 caffeinate 子进程句柄 + 屏幕清洁状态。
 pub struct AppState {
     pub caffeinate: Mutex<Option<Child>>,
@@ -39,21 +105,27 @@ pub fn kill_port_holder() {
 /// 拉起 Swift 守护进程（蓝牙承载），独立于 App 生命周期常驻。
 /// 端口已被占用（旧实例在跑）时直接跳过——守护自身带父进程看门狗，
 /// 父进程退出即自我回收，无需本进程持有其句柄。
+/// 全程向 switchkit-rust.log 写生命周期日志，便于真机事后定位。
 fn spawn_sidecar() {
     use std::net::TcpStream;
     use std::time::Duration;
+    lifecycle_log("spawn_sidecar: enter");
     let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
         Ok(a) => a,
-        Err(_) => return,
+        Err(e) => {
+            lifecycle_log(&format!("spawn_sidecar: bad addr: {}", e));
+            return;
+        }
     };
     // 升级/异常退出残留：清掉占用 9876 的旧守护，确保拉起的是本次构建的健康守护。
-    // 否则会复用残留的旧守护，状态探测超时、面板显示「原生守护未运行」。
     // （此前 693dc59 回退时误删了 dffe193 的这步清理，导致升级后原生守护不亮。）
     kill_port_holder();
-    // 清掉后重新探测：若仍有实例在跑（kill 失败等极端情况），复用现有守护。
+    lifecycle_log("spawn_sidecar: kill_port_holder done");
     if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
+        lifecycle_log("spawn_sidecar: 9876 already listening, reuse existing daemon");
         return; // 已有实例在跑
     }
+    lifecycle_log("spawn_sidecar: 9876 not listening, need to launch");
     // 产物路径：发布态在 exe 旁；开发态在 src-tauri/binaries/<名>-<triple>
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
@@ -69,34 +141,44 @@ fn spawn_sidecar() {
     );
     for path in candidates {
         if !path.exists() {
+            lifecycle_log(&format!(
+                "spawn_sidecar: candidate MISSING: {}",
+                path.display()
+            ));
             continue;
         }
+        lifecycle_log(&format!(
+            "spawn_sidecar: candidate exists: {}",
+            path.display()
+        ));
         // 关键（Apple Silicon 修复）：先清掉嵌套守护自身的隔离属性再 spawn。
-        // 用户「右键→打开」只清掉 .app 顶层 quarantine，但 bundle 内这个独立
-        // Mach-O（ad-hoc 签名、哈希与主程序不同）在 Apple Silicon 上仍会被 AMFI
-        // 当作「新的隔离二进制」拦截——Intel 无 AMFI 故放行。去掉它的 quarantine
-        // xattr 后 AMFI 不再拦截，这是 9876 能起来的前提（xattr 不计入代码签名
-        // 哈希，删隔离属性不会破坏 app 签名）。
         #[cfg(target_os = "macos")]
         strip_quarantine(&path);
         // 优先直接拉起 bundle 内守护（已清隔离，Apple Silicon 上 AMFI 放行）。
         if try_spawn_daemon(&path) {
+            lifecycle_log("spawn_sidecar: daemon up via bundle path, done");
             return;
         }
+        lifecycle_log("spawn_sidecar: bundle path spawn FAILED, fallback to Application Support");
         // bundle 内仍拉不起（极端环境），退回到 Application Support 副本。
-        // 早期用 /tmp 去隔离，但 macOS 26+ 对脱离 bundle 的 /tmp 副本反而更严、
-        // 易被 AMFI 拦，故改放用户可写的 Application Support（非下载隔离树）。
         #[cfg(target_os = "macos")]
         {
             let dest = prepare_daemon_macos(&path);
-            let _ = try_spawn_daemon(&dest);
+            if try_spawn_daemon(&dest) {
+                lifecycle_log("spawn_sidecar: daemon up via Application Support fallback, done");
+                return;
+            }
+            lifecycle_log("spawn_sidecar: Application Support fallback also FAILED");
         }
         return;
     }
+    lifecycle_log("spawn_sidecar: no candidate path found, daemon NOT launched");
 }
 
-/// spawn 守护进程并探测 9876 是否在 ~1s 内就绪；就绪返回 true。
-/// 守护独立常驻：不持有句柄（std::mem::forget），由其自带父进程看门狗回收。
+/// spawn 守护进程并把它的 stderr 重定向到 daemon 日志文件，
+/// 探测 9876 是否在 ~1s 内就绪；就绪返回 true。
+/// 守护独立常驻：就绪后 std::mem::forget 脱离句柄，由其自带父进程看门狗回收。
+/// 未就绪时回收该子进程并记录诊断信息（是否拉起、是否还活着、其 stderr 已落盘）。
 fn try_spawn_daemon(path: &std::path::Path) -> bool {
     use std::net::TcpStream;
     use std::time::Duration;
@@ -104,16 +186,63 @@ fn try_spawn_daemon(path: &std::path::Path) -> bool {
         Ok(a) => a,
         Err(_) => return false,
     };
-    if std::process::Command::new(path).spawn().is_err() {
-        return false;
+    // 守护 stderr 重定向到 daemon 日志：GUI 下守护 stderr 被丢弃，落盘后我们
+    // 才能看到它 bind/权限阶段的报错（如被 AMFI 拦截、端口占用）。
+    let mut cmd = std::process::Command::new(path);
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(daemon_log_path())
+    {
+        Ok(f) => {
+            cmd.stderr(f);
+        }
+        Err(_) => {
+            cmd.stderr(std::process::Stdio::null());
+        }
     }
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            lifecycle_log(&format!(
+                "try_spawn_daemon: spawn FAILED for {}: {}",
+                path.display(),
+                e
+            ));
+            return false;
+        }
+    };
+    let pid = child.id();
+    lifecycle_log(&format!(
+        "try_spawn_daemon: spawned pid {} ({})",
+        pid,
+        path.display()
+    ));
+    let mut up = false;
     for _ in 0..20 {
         if TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
-            return true;
+            up = true;
+            break;
         }
         std::thread::sleep(Duration::from_millis(50));
     }
-    false
+    if up {
+        lifecycle_log(&format!(
+            "try_spawn_daemon: pid {} listening on 9876 OK",
+            pid
+        ));
+        std::mem::forget(child); // 脱离句柄，由看门狗回收
+        true
+    } else {
+        let alive = is_process_alive(pid);
+        lifecycle_log(&format!(
+            "try_spawn_daemon: pid {} NOT up after ~1s; alive={}; 其 stderr 见 daemon 日志",
+            pid, alive
+        ));
+        let _ = child.kill();
+        let _ = child.wait();
+        false
+    }
 }
 
 /// macOS 专用：把守护复制到用户可写目录并去掉下载隔离属性，返回实际可执行路径。
@@ -139,7 +268,10 @@ fn prepare_daemon_macos(src: &std::path::Path) -> std::path::PathBuf {
     // 复制失败（极端情况）则退回原路径，并在原路径上尽量去隔离。
     match std::fs::copy(src, &dest) {
         Ok(_) => {}
-        Err(_) => { strip_quarantine(src); return src.to_path_buf(); }
+        Err(_) => {
+            strip_quarantine(src);
+            return src.to_path_buf();
+        }
     }
     // 兜底：源二进制若仍带隔离也一并清掉（defense-in-depth）
     strip_quarantine(src);
@@ -158,9 +290,22 @@ fn strip_quarantine(path: &std::path::Path) {
         "com.apple.quarantine",
         "com.apple.metadata:com_apple_quarantine",
     ] {
-        let _ = std::process::Command::new("/usr/bin/xattr")
+        let out = std::process::Command::new("/usr/bin/xattr")
             .args(["-d", attr, &path.to_string_lossy()])
             .output();
+        match out {
+            Ok(o) => lifecycle_log(&format!(
+                "strip_quarantine: xattr -d {} on {} -> exited={} (属性不存在属正常)",
+                attr,
+                path.display(),
+                o.status
+            )),
+            Err(e) => lifecycle_log(&format!(
+                "strip_quarantine: xattr FAILED for {}: {}",
+                path.display(),
+                e
+            )),
+        }
     }
 }
 
