@@ -1,0 +1,24 @@
+name: CI Probe 7 (macos-13 Xcode/Swift 清单)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: macos-13
+    steps:
+      - name: 列出 Xcode 安装并探测能否锁定 Swift 5.x
+        run: |
+          echo "=== /Applications/Xcode*.app ==="
+          ls -d /Applications/Xcode*.app 2>/dev/null || echo "(无 Xcode 目录)"
+          for xc in Xcode_14.3.1 Xcode_15.4 Xcode_15.3 Xcode_15.2 Xcode_15.0 Xcode_14.2; do
+            p="/Applications/${xc}.app/Contents/Developer"
+            if [ -d "$p" ]; then
+              echo "--- $xc ---"
+              sudo xcode-select -s "$p"
+              xcodebuild -version
+              swift --version
+            fi
+          done
+          echo "=== 默认 swift ==="
+          swift --version
