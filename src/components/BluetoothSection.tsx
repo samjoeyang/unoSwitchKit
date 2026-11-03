@@ -18,11 +18,17 @@ export function BluetoothSection() {
 
   useEffect(() => {
     refresh();
+    // 守护启动后 IOBluetooth 有 ~14.5s 冷启动（bluetoothd 预热），期间缓存为空；
+    // 轮询让列表在预热完成后自动出现，无需手动隐藏/显示面板。
+    const t = setInterval(refresh, 5000);
     const onVis = () => {
       if (!document.hidden) refresh();
     };
     document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [refresh]);
 
   async function act(d: BtDevice) {

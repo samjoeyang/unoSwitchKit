@@ -94,7 +94,13 @@ class Connection {
         case "ping":
             resp = ["ok": true]
         case "bluetooth:status":
-            resp = ["cmd": "bluetooth:status", "power": bluetoothPower() as Any]
+            // 只读缓存（0ms），绝不在此同步调 IOBluetooth（冷启动会挂起 ~14.5s）
+            var d: [String: Any] = ["cmd": "bluetooth:status"]
+            btCacheQ.sync {
+                d["power"] = btPowerCache as Any
+                d["warming"] = !btWarmed
+            }
+            resp = d
         case "bluetooth:toggle":
             let on = !(bluetoothPower() ?? false)
             _ = shell("blueutil", ["--power", on ? "on" : "off"])
@@ -106,7 +112,13 @@ class Connection {
                     .localizedName ?? "",
             ]
         case "bt:devices":
-            resp = ["cmd": cmd, "devices": BTManager.pairedDevices()]
+            // 只读缓存（0ms）；未就绪返回 warming:true，前端显示「初始化中」
+            var d: [String: Any] = ["cmd": cmd]
+            btCacheQ.sync {
+                d["devices"] = btDevicesCache
+                d["warming"] = !btWarmed
+            }
+            resp = d
         case "bt:connect":
             // 连接为异步 + 10s 轮询，同步阻塞本连接直至有结论
             let ok = BTManager.connect(address: obj["address"] as? String ?? "")
@@ -149,6 +161,46 @@ class Connection {
         // 兜底：若 source 未触发 cancel，这里确保 fd 关闭。
         close(fd)
     }
+}
+
+// ---------------- 蓝牙结果缓存 ----------------
+// 消除 macOS 27 上 IOBluetooth 首次调用 ~14.5s 冷启动导致的探测超时。
+// 冷启动是「一次性」成本：首个 IOBluetooth 调用耗时 ~14.5s（bluetoothd XPC 预热），
+// 预热后全部 0ms。策略：守护启动即后台预热填充缓存；请求路径只读缓存（0ms，绝不在
+// 同步路径碰 IOBluetooth），未就绪返回 warming:true，前端据此显示「初始化中」而非误判。
+// 后台定时刷新保持缓存新鲜（蓝牙开关/配对变化后前端下次轮询即见）。
+private let btCacheQ = DispatchQueue(label: "bt.cache")       // 保护缓存读写
+private let btRefreshQ = DispatchQueue(label: "bt.refresh")   // 串行执行刷新，避免并发调 IOBluetooth
+private var btPowerCache: Bool? = nil
+private var btDevicesCache: [[String: Any]] = []
+private var btWarmed = false
+
+private func btRefreshCache() {
+    // 仅在后台队列调用（预热 / 定时），不在请求路径
+    let power = bluetoothPower()
+    let devices = BTManager.pairedDevices()
+    btCacheQ.sync {
+        btPowerCache = power
+        btDevicesCache = devices
+        btWarmed = true
+    }
+    skLog("bt cache refreshed: power=\(String(describing: power)) devices=\(devices.count)")
+}
+
+/// 启动后台预热 + 定时刷新。守护常驻，定时器故意泄漏。
+func btKickoff() {
+    skLog("prewarm: starting bluetoothd warmup (background)")
+    let t0 = Date()
+    btRefreshQ.async {
+        btRefreshCache()
+        let ms = Int(-t0.timeIntervalSinceNow * 1000)
+        skLog("prewarm: bluetoothd ready in \(ms)ms")
+    }
+    let timer = DispatchSource.makeTimerSource(queue: btRefreshQ)
+    timer.schedule(deadline: .now() + 10, repeating: 10)
+    timer.setEventHandler { btRefreshCache() }
+    timer.resume()
+    _ = Unmanaged.passRetained(timer)
 }
 
 // ---------------- 原生能力封装 ----------------

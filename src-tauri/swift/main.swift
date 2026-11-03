@@ -104,6 +104,10 @@ _ = Unmanaged.passRetained(acceptSrc)
 
 skLog("listening on 127.0.0.1:\(port)")
 
+// 后台预热 bluetoothd + 缓存蓝牙状态/设备列表，消除 macOS 27 上 IOBluetooth
+// 首次调用 ~14.5s 冷启动导致的探测超时（详见 bridge.swift 的 btKickoff）。
+btKickoff()
+
 // ---- 父进程看门狗 ----
 // 本进程是常驻进程（下面的 dispatchMain() 永不返回），若 App 退出时
 // 不主动回收，它会一直持有 SwitchKit.app/Contents/MacOS/switchkit-daemon 的文件映射，
