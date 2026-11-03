@@ -76,13 +76,19 @@ class Connection {
     }
 
     private func process(message: String) {
+        skLog("recv: \(message)")
         guard
             let data = message.data(using: .utf8),
             let obj = try? JSONSerialization.jsonObject(with: data)
                 as? [String: Any],
             let cmd = obj["cmd"] as? String
-        else { return }
+        else {
+            skLog("recv: ignored (not a {\"cmd\":...} JSON)")
+            return
+        }
 
+        skLog("dispatch: \(cmd)")
+        let t0 = Date()
         let resp: [String: Any]
         switch cmd {
         case "ping":
@@ -111,6 +117,8 @@ class Connection {
         default:
             resp = ["error": "unknown command: \(cmd)"]
         }
+        let ms = Int(-t0.timeIntervalSinceNow * 1000)
+        skLog("respond: \(cmd) took \(ms)ms -> \(resp)")
         send(dict: resp)
     }
 

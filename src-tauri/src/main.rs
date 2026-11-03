@@ -295,10 +295,15 @@ fn strip_quarantine(path: &std::path::Path) {
             .output();
         match out {
             Ok(o) => lifecycle_log(&format!(
-                "strip_quarantine: xattr -d {} on {} -> exited={} (属性不存在属正常)",
+                "strip_quarantine: xattr -d {} on {} -> exited={} ({})",
                 attr,
                 path.display(),
-                o.status
+                o.status,
+                if o.status.success() {
+                    "已移除隔离属性"
+                } else {
+                    "属性本就不存在(正常)"
+                }
             )),
             Err(e) => lifecycle_log(&format!(
                 "strip_quarantine: xattr FAILED for {}: {}",

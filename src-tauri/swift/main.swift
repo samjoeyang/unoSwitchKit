@@ -13,9 +13,9 @@
 //   - 不依赖任何 runloop/事件循环泵送，进程用 dispatchMain() 常驻即可；
 //   - 绕开本机网络扩展（如 Tailscale）对 Network 框架 bind 的拦截。
 //
-// 诊断日志：所有关键生命周期事件同时写 stderr 与
-//   ~/Library/Logs/switchkit-daemon.log
-// GUI 启动下 stderr 被丢弃，落盘后才能事后分析「守护为何没起来」。
+// 诊断日志：所有关键生命周期事件写 stderr，由 Rust 侧把守护子进程的 stderr
+//   重定向到 ~/Library/Logs/switchkit-daemon.log（单一落盘出口，避免重复写）。
+// GUI 启动下 stderr 本会被丢弃，落盘后才能事后分析「守护为何没起来」。
 
 import Foundation
 import AppKit
@@ -23,8 +23,6 @@ import AppKit
 let port: UInt16 = 9876
 
 // ---- 诊断日志 ----
-let DAEMON_LOG = "\(NSHomeDirectory())/Library/Logs/switchkit-daemon.log"
-
 func dateStamp() -> String {
     let df = DateFormatter()
     df.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZZZZZ"
@@ -32,19 +30,11 @@ func dateStamp() -> String {
     return df.string(from: Date())
 }
 
-/// 同时写 stderr 与 ~/Library/Logs/switchkit-daemon.log。
+/// 仅写 stderr。守护子进程的 stderr 由 Rust 侧重定向到
+/// ~/Library/Logs/switchkit-daemon.log，故此处只写 stderr 即可（避免重复落盘）。
 func skLog(_ msg: String) {
     guard let data = "\(dateStamp()) [daemon] \(msg)\n".data(using: .utf8) else { return }
     FileHandle.standardError.write(data)
-    let fm = FileManager.default
-    if !fm.fileExists(atPath: DAEMON_LOG) {
-        fm.createFile(atPath: DAEMON_LOG, contents: nil)
-    }
-    if let fh = FileHandle(forWritingAtPath: DAEMON_LOG) {
-        fh.seekToEndOfFile()
-        fh.write(data)
-        fh.closeFile()
-    }
 }
 
 skLog("=== SwitchKit sidecar launch ===")

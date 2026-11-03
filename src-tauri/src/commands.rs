@@ -493,15 +493,31 @@ fn sidecar_call(req: serde_json::Value, connect_ms: u64, read_ms: u64) -> Result
 }
 
 /// 探测 Swift sidecar 健康状态（localhost:9876，TCP/JSON 行协议）。
+///
+/// 关键：先用 `ping` 判定「守护进程是否存活」——ping 不触碰 IOBluetooth，
+/// 不会因蓝牙权限 / bluetoothd XPC 在 macOS 27 等环境下挂起而超时；
+/// 再用 `bluetooth:status` 单独取蓝牙开关状态（独立连接、独立超时，互不阻塞）。
+/// 这样即使蓝牙探测变慢/失败，面板「原生守护」仍正确显示「运行中」，
+/// 而非把蓝牙问题误判成「守护未运行」。
 #[tauri::command]
 pub async fn sidecar_status() -> SidecarStatus {
-    match sidecar_call(json!({ "cmd": "bluetooth:status" }), 400, 800) {
-        Ok(v) => SidecarStatus {
-            running: true,
-            bluetooth: v.get("power").and_then(|x| x.as_bool()),
-        },
-        Err(_) => SidecarStatus { running: false, bluetooth: None },
+    // 1) 存活判定：ping（不碰 IOBluetooth，绝不会挂起）
+    let alive = match sidecar_call(json!({ "cmd": "ping" }), 400, 1500) {
+        Ok(_) => true,
+        Err(e) => {
+            eprintln!("sidecar ping failed: {}", e);
+            false
+        }
+    };
+    if !alive {
+        return SidecarStatus { running: false, bluetooth: None };
     }
+    // 2) 蓝牙状态：独立探测，失败仅置空，不影响「运行中」判定
+    let bluetooth = match sidecar_call(json!({ "cmd": "bluetooth:status" }), 400, 2500) {
+        Ok(v) => v.get("power").and_then(|x| x.as_bool()),
+        Err(_) => None,
+    };
+    SidecarStatus { running: true, bluetooth }
 }
 
 

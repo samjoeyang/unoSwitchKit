@@ -2,6 +2,22 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.4.5] - 2026-11-03
+
+### 修复：面板「原生守护」在守护实际运行时仍报「未运行」（macOS 27）
+
+**背景**
+
+- 0.4.4 诊断日志证实：Apple 芯片 + macOS 27 上守护进程正常 spawn、9876 监听就绪，但面板仍显示「原生守护：未运行」。
+- 根因在状态探测层而非 spawn：`sidecar_status` 用 `{"cmd":"bluetooth:status"}` 判定存活，该命令会调用 `IOBluetooth`（`IOBluetoothHostController.default()` / `powerState`）；在 macOS 27 上该调用可能变慢/挂起（蓝牙权限或 bluetoothd XPC），超过 800ms 读取超时，导致面板误判守护「未运行」，但守护其实活着。
+
+**改动**
+
+- `src-tauri/src/commands.rs`：`sidecar_status` 改为「先 `ping` 判定存活（不碰 IOBluetooth，不会挂起），再独立探测 `bluetooth:status`（独立连接 + 2500ms 超时，失败仅 `bluetooth` 置空）」。守护活着即显示「运行中」，与蓝牙探测解耦。
+- `src-tauri/swift/bridge.swift`：守护对每条请求记录 `recv / dispatch / respond(耗时)`，便于下次回传日志确认 `bluetooth:status` 是否挂起。
+- `src-tauri/swift/main.swift`：修复日志重复落盘——`skLog` 仅写 stderr，由 Rust 侧统一重定向到 `switchkit-daemon.log`（此前 stderr 与文件各写一遍导致每行重复）。
+- `src-tauri/src/main.rs`：修正 `strip_quarantine` 日志误标（exit 0 = 已移除隔离属性，非「不存在」）。
+
 ## [0.4.4] - 2026-11-03
 
 ### 诊断：原生守护全生命周期日志插桩（定位「守护不亮」根因用）
