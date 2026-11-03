@@ -93,6 +93,15 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      # 关键修复：cargo 缓存（restore-keys 前缀匹配）会把历史 run 的
+      # src-tauri/target 整体恢复，其中 */release/bundle/macos/ 里残留的旧版本
+      # 分发 zip（如 0.4.1/0.4.2/0.4.3）会被后续通配拷贝误传进新 Release。
+      # 构建前先清掉这些残留 zip，确保目录里只剩本次版本产物。
+      - name: 清理缓存中残留的旧版本分发 zip
+        run: |
+          find src-tauri/target -path '*/release/bundle/macos/SwitchKit-*.zip' -delete 2>/dev/null || true
+          echo "已清理缓存中可能残留的旧版本 SwitchKit-*.zip"
+
       - name: 安装前端依赖
         run: npm ci
 
@@ -191,8 +200,12 @@ jobs:
               json.dump(manifest, f, indent=2, ensure_ascii=False)
           print("latest.json 已生成，平台：", list(platforms.keys()))
           PY
-          # 手动分发的三个 zip 也一并放进发布目录
-          cp src-tauri/target/*/release/bundle/macos/SwitchKit-*.zip ota/ 2>/dev/null || true
+          # 手动分发的三个 zip 也一并放进发布目录。
+          # 改用「当前版本 + 精确架构名」拷贝，不再用 SwitchKit-*.zip 通配——
+          # 通配会把缓存里残留的旧版本包一并扫进来（即本次 0.4.5 混入 0.4.1~0.4.3 的根因）。
+          cp "src-tauri/target/universal-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-universal.zip" ota/
+          cp "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-x86_64.zip" ota/
+          cp "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-aarch64.zip" ota/
           echo "OTA 发布目录："; ls -lh ota
 
       - name: 发布到 GitHub Release
@@ -215,7 +228,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: switchkit-macos-${{ github.sha }}
-          path: src-tauri/target/*/release/bundle/macos/SwitchKit-*.zip
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/macos/SwitchKit-*.zip
+            src-tauri/target/x86_64-apple-darwin/release/bundle/macos/SwitchKit-*.zip
+            src-tauri/target/aarch64-apple-darwin/release/bundle/macos/SwitchKit-*.zip
           if-no-files-found: error
           retention-days: 30
 
