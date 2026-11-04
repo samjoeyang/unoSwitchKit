@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ToggleGrid, type ToggleKey } from "./components/ToggleGrid";
 import { ResourcePanel } from "./components/ResourcePanel";
+import { CleanupPanel } from "./components/CleanupPanel";
 import { BluetoothSection } from "./components/BluetoothSection";
 import { BalanceSection } from "./components/BalanceSection";
 import { SettingsSection } from "./components/SettingsSection";
@@ -158,6 +159,7 @@ export default function App() {
 
       <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
       <ResourcePanel />
+      <CleanupPanel />
       <BluetoothSection />
       <BalanceSection
         version={balanceVersion}

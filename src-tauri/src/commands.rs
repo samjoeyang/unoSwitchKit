@@ -28,7 +28,7 @@ fn is_desktop_hidden() -> bool {
     }
 }
 
-fn trash_path() -> std::path::PathBuf {
+fn trash_dir() -> std::path::PathBuf {
     util::home_dir().join(".Trash")
 }
 
@@ -41,7 +41,7 @@ fn trash_count() -> u32 {
         }
     }
     // 回退：直接枚举 ~/.Trash
-    let trash = trash_path();
+    let trash = trash_dir();
     if !trash.exists() {
         return 0;
     }
@@ -225,7 +225,7 @@ pub async fn empty_trash() -> Result<u32, String> {
         return Ok(before);
     }
     // 回退：直接删除 ~/.Trash 内条目
-    let trash = trash_path();
+    let trash = trash_dir();
     if trash.exists() {
         for entry in fs::read_dir(&trash).map_err(|e| e.to_string())? {
             if let Ok(entry) = entry {
@@ -426,18 +426,37 @@ pub async fn flush_dns() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn preview_cache_cleanup() -> CachePreview {
-    let items = crate::cache_whitelist::preview();
-    let total_bytes: u64 = items.iter().map(|i| i.size_bytes).sum();
-    CachePreview {
-        items,
-        total_bytes,
-    }
+pub async fn scan_cleanup(app: AppHandle) -> CleanPreview {
+    let s = crate::store::load_settings(&app);
+    crate::cleanup::scan(&s.cache_whitelist_extra)
 }
 
 #[tauri::command]
-pub async fn clear_cache() -> CacheClearResult {
-    crate::cache_whitelist::clear()
+pub async fn clean_selected(app: AppHandle, ids: Vec<String>) -> CleanResult {
+    let s = crate::store::load_settings(&app);
+    crate::cleanup::clean(&ids, &s.cache_whitelist_extra)
+}
+
+#[tauri::command]
+pub async fn bundle_usage() -> Vec<BundleUsage> {
+    crate::cleanup::bundle_usage()
+}
+
+#[tauri::command]
+pub async fn large_files(threshold_mb: u64) -> Vec<LargeFile> {
+    let threshold = if threshold_mb == 0 {
+        500
+    } else {
+        threshold_mb
+    } * 1024
+        * 1024;
+    crate::cleanup::large_files(threshold)
+}
+
+/// 将任意位于主目录内的路径移入废纸篓（用于大文件等定向清理）。
+#[tauri::command]
+pub async fn trash_path(path: String) -> Result<String, String> {
+    crate::cleanup::trash_path(&path)
 }
 
 /// 查询所有已配置 Key 的余额（无 Key 时返回空列表）。

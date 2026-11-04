@@ -2,8 +2,10 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AccountBalance,
   BtDevice,
-  CacheClearResult,
-  CachePreview,
+  BundleUsage,
+  CleanPreview,
+  CleanResult,
+  LargeFile,
   MemoryComparison,
   MemoryStat,
   Settings,
@@ -28,8 +30,13 @@ export const api = {
   closeAllApps: () => invoke<number>("close_all_apps"),
   releaseMemory: () => invoke<MemoryComparison>("release_memory"),
   flushDns: () => invoke<void>("flush_dns"),
-  previewCacheCleanup: () => invoke<CachePreview>("preview_cache_cleanup"),
-  clearCache: () => invoke<CacheClearResult>("clear_cache"),
+  scanCleanup: () => invoke<CleanPreview>("scan_cleanup"),
+  cleanSelected: (ids: string[]) =>
+    invoke<CleanResult>("clean_selected", { ids }),
+  bundleUsage: () => invoke<BundleUsage[]>("bundle_usage"),
+  largeFiles: (thresholdMb: number) =>
+    invoke<LargeFile[]>("large_files", { thresholdMb }),
+  trashPath: (path: string) => invoke<string>("trash_path", { path }),
   getBalances: () => invoke<AccountBalance[]>("get_balances"),
   getMemoryStats: () => invoke<MemoryStat>("get_memory_stats"),
   getSettings: () => invoke<Settings>("get_settings"),

@@ -35,40 +35,92 @@ pub struct MemoryComparison {
     pub after: MemoryStat,
 }
 
-/// 单个缓存目录的统计。
+/// 清理项的风险等级（决定能否被自动清理 / 是否需要警告）。
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum CleanRisk {
+    /// 安全：系统/浏览器/开发缓存，可随时重建，允许自动清理。
+    Safe,
+    /// 谨慎：App 缓存、下载过期文件，清理可能丢失登录态/离线内容，需用户手动勾选。
+    Caution,
+    /// 危险：应用残留、iOS 备份、大文件，必须用户显式选择，绝不自动清理。
+    Danger,
+}
+
+/// 单个可清理项的统计与元数据。
 #[derive(Serialize, Deserialize, Clone)]
-pub struct CacheItem {
+pub struct CleanItem {
+    /// 稳定标识（清理时据此定位路径）；动态项形如 `downloads:<path>`。
+    pub id: String,
+    /// 展示名（如「Safari 缓存」）。
+    pub label: String,
+    /// 绝对路径。
     pub path: String,
+    /// 分类键（browser/system/app/dev/xcode/logs/ios/downloads/leftover/custom）。
+    pub category: String,
+    /// 分类展示名（如「浏览器缓存」）。
+    pub category_label: String,
+    /// 风险等级。
+    pub risk: CleanRisk,
+    /// 占用大小（字节）。
     pub size_bytes: u64,
+    /// 路径是否存在。
     pub exists: bool,
 }
 
-/// 缓存清理预览结果。
+/// 清理预览结果（仅统计，不删除）。
 #[derive(Serialize, Deserialize, Clone)]
-pub struct CachePreview {
-    pub items: Vec<CacheItem>,
+pub struct CleanPreview {
+    pub items: Vec<CleanItem>,
     pub total_bytes: u64,
 }
 
-/// 单个缓存目录清理失败的原因（如受 TCC 保护、权限不足）。
+/// 单个清理项的执行结果（逐项目容错）。
 #[derive(Serialize, Deserialize, Clone)]
-pub struct CacheClearFailure {
-    pub path: String,
-    pub reason: String,
+pub struct CleanResultItem {
+    pub id: String,
+    /// 是否成功移入废纸篓。
+    pub ok: bool,
+    /// 失败原因，或成功时的目标路径。
+    pub detail: String,
+    /// 释放字节数（成功时）。
+    pub freed_bytes: u64,
 }
 
-/// 缓存清理结果：逐目录容错，单个失败不影响其它目录。
+/// 清理结果：逐项目容错，单个失败不影响其它项目。
 #[derive(Serialize, Deserialize, Clone)]
-pub struct CacheClearResult {
+pub struct CleanResult {
     pub freed_bytes: u64,
-    pub cleared_count: usize,
-    pub failed: Vec<CacheClearFailure>,
+    pub cleaned_count: usize,
+    /// 是否经过「移入废纸篓」安全网（当前恒为 true）。
+    pub moved_to_trash: bool,
+    pub failed: Vec<CleanResultItem>,
+}
+
+/// 按占用者（目录名）聚合的空间占用排行项。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct BundleUsage {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+/// 大文件 / 疑似重复文件扫描项。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct LargeFile {
+    pub id: String,
+    pub path: String,
+    pub size_bytes: u64,
+    /// 是否落在「相同大小 + 相同内容采样」的重复组中（疑似重复）。
+    pub duplicate: bool,
 }
 
 /// 持久化设置（JSON 文件，存于 AppConfig 目录）。
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Settings {
     pub toggle_order: Vec<String>,
+    /// 用户自定义清理路径（相对 ~/，仅 safe 级），仍未在旧版接线，本次统一接入。
+    #[serde(default)]
     pub cache_whitelist_extra: Vec<String>,
     pub last_release: Option<MemoryComparison>,
     /// 各厂商 API Key 列表（支持多个、可混合厂商）。
@@ -79,6 +131,19 @@ pub struct Settings {
     /// 部分境外站点在境内直连会被 TLS 重置，需要走本地代理。
     #[serde(default)]
     pub http_proxy: String,
+    /// 自动清理开关（仅清理 safe 级项，避免误删 App 数据）。
+    #[serde(default)]
+    pub auto_clean_enabled: bool,
+    /// 自动清理周期（天），最小 1。
+    #[serde(default = "default_auto_clean_interval")]
+    pub auto_clean_interval_days: u32,
+    /// 上次自动清理的时间戳（秒）；0 表示从未执行。
+    #[serde(default)]
+    pub last_auto_clean_ts: i64,
+}
+
+fn default_auto_clean_interval() -> u32 {
+    7
 }
 
 /// 一个模型平台 API Key 配置。

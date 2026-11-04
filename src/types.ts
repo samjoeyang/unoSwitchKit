@@ -22,26 +22,49 @@ export interface MemoryComparison {
   after: MemoryStat;
 }
 
-export interface CacheItem {
+export type CleanRisk = "safe" | "caution" | "danger";
+
+export interface CleanItem {
+  id: string;
+  label: string;
   path: string;
+  category: string;
+  category_label: string;
+  risk: CleanRisk;
   size_bytes: number;
   exists: boolean;
 }
 
-export interface CachePreview {
-  items: CacheItem[];
+export interface CleanPreview {
+  items: CleanItem[];
   total_bytes: number;
 }
 
-export interface CacheClearFailure {
-  path: string;
-  reason: string;
+export interface CleanResultItem {
+  id: string;
+  ok: boolean;
+  detail: string;
+  freed_bytes: number;
 }
 
-export interface CacheClearResult {
+export interface CleanResult {
   freed_bytes: number;
-  cleared_count: number;
-  failed: CacheClearFailure[];
+  cleaned_count: number;
+  moved_to_trash: boolean;
+  failed: CleanResultItem[];
+}
+
+export interface BundleUsage {
+  name: string;
+  path: string;
+  size_bytes: number;
+}
+
+export interface LargeFile {
+  id: string;
+  path: string;
+  size_bytes: number;
+  duplicate: boolean;
 }
 
 export interface ProviderKey {
@@ -74,11 +97,18 @@ export interface AccountBalance {
 
 export interface Settings {
   toggle_order: string[];
+  /// 用户自定义清理路径（相对 ~/，仅 safe 级）
   cache_whitelist_extra: string[];
   last_release: MemoryComparison | null;
   provider_keys: ProviderKey[];
   /// 余额查询用的 HTTP 代理，留空直连
   http_proxy: string;
+  /// 自动清理开关（仅清理 safe 级项）
+  auto_clean_enabled: boolean;
+  /// 自动清理周期（天）
+  auto_clean_interval_days: number;
+  /// 上次自动清理时间戳（秒），0 表示从未
+  last_auto_clean_ts: number;
 }
 
 export interface SidecarStatus {

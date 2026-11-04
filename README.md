@@ -38,7 +38,7 @@ Mac 菜单栏快捷开关 + 系统资源释放工具。macOS 专属、常驻菜�
 2. **解压并拖入应用程序**。若拿到的是分卷（`*.z01`、`*.z02` … `*.zip`），先合并再解压：
 
    ```bash
-   zip -s 0 SwitchKit-v0.4.1-universal.zip --out SwitchKit-full.zip
+   zip -s 0 SwitchKit-0.4.7-universal.zip --out SwitchKit-full.zip
    unzip SwitchKit-full.zip     # 得到 SwitchKit.app
    ```
 

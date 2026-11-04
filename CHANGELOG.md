@@ -4,6 +4,12 @@
 
 ## [0.4.7] - 2026-11-04（未发布）
 
+### 修复：清理执行无反馈（不知道是否成功）
+
+- 根因：`CleanupPanel.doClean()` 把结果文案写入 `msg` 后紧接着 `await doScan()`，而 `doScan()` 开头就 `setMsg("")` —— 结果提醒被自己清空；执行期间按钮只变灰、无文案无 spinner，列表也无进行态。
+- 改动：结果状态（`result` / `resultError`）与通用提示 `msg` 解耦，清理后走静默重扫 `scanCleanup(true)`，不再清空结果；新增执行中 spinner、顶部不确定进度条与列表遮罩；新增常驻结果卡（释放空间、成功项数、失败项可展开查看原因、手动关闭）；二次确认提示改为琥珀色强调。
+- `src/index.css` 新增 `cleanup-spin` / `cleanup-indeterminate` / `cleanup-result-in` 动效，并兼容 `prefers-reduced-motion`。
+
 ### 修复：升级版本后余额 apikey 丢失
 
 **背景**
