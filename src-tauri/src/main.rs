@@ -1,7 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod balance;
-mod cache_whitelist;
+mod cleanup;
 mod commands;
 mod models;
 mod privilege;
@@ -356,11 +356,28 @@ fn main() {
 
             tray::create_tray(app)?;
 
+            // 配置规范化迁移：把旧字段名（deepseek_keys）归一为 provider_keys，
+            // 并剔除已删除功能遗留的未知字段（menubar_* 等）。修复「升级后余额
+            // apikey 消失」——此前 schema 漂移会让整文件反序列化失败、清空所有设置。
+            store::normalize_settings(app.handle());
+
             // 包被替换/移动后修正开机自启指向（旧路径会让 launchd 拉起旧副本）
             store::repair_launch_agent();
 
             // 拉起守护进程（独立常驻，不持有句柄）
             spawn_sidecar();
+
+            // 自动清理定时器：后台线程，启动 ~60s 后首检，之后每小时检查一次。
+            // 仅清理 safe 级项；周期与开关来自持久化设置。
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(60));
+                    crate::cleanup::run_auto_clean_if_due(&handle);
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                });
+            }
+
             app.manage(AppState {
                 caffeinate: Mutex::new(None),
                 screen_cleaned: Mutex::new(false),
@@ -383,8 +400,11 @@ fn main() {
             commands::close_all_apps,
             commands::release_memory,
             commands::flush_dns,
-            commands::preview_cache_cleanup,
-            commands::clear_cache,
+            commands::scan_cleanup,
+            commands::clean_selected,
+            commands::bundle_usage,
+            commands::large_files,
+            commands::trash_path,
             commands::get_balances,
             commands::get_memory_stats,
             commands::get_settings,

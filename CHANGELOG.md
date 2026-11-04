@@ -2,6 +2,50 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.4.7] - 2026-11-04（未发布）
+
+### 修复：升级版本后余额 apikey 丢失
+
+**背景**
+
+- 配置持久化（`settings.json`，位于 `~/Library/Application Support/com.switchkit.app`）长期没有版本化迁移层，仅靠一个硬编码的 `#[serde(alias = "deepseek_keys")]` 兜底。
+- 旧 `load_settings` 用 `serde_json::from_str::<Settings>()` 一次性整体反序列化：只要文件里**任一个已知字段**的类型与新结构不符（schema 漂移，如历史遗留字段、类型重构），整个解析就失败并回退 `Settings::default()`，于是同一文件里的余额 apikey 等所有设置被「连坐」清空——表现即「升级后 apikey 消失」。
+- 实证：本机现存的 `settings.json` 仍携带 `menubar_managed` 等当前结构体早已删除的字段，证明旧 schema 在无迁移的情况下长期漂移。
+
+**改动**
+
+- `src-tauri/src/store.rs`：`load_settings` 改为**逐字段容错读取**（抽取为纯函数 `settings_from_value`），任一字段解析失败只跳过该字段，绝不连坐清空；余额 Key 同时兼容 `provider_keys`（当前）与 `deepseek_keys`（v0.3.8 旧名）。新增 `normalize_settings` 在启动期调用一次，把旧字段名归一、剔除未知遗留字段并写回规范化文件（仅在确有差异时写盘）。
+- `src-tauri/src/main.rs`：`setup` 中调用 `store::normalize_settings`。
+- 新增回归测试：`sibling_unknown_field_does_not_wipe_keys` / `known_field_type_mismatch_keeps_keys` / `legacy_deepseek_keys_survive_with_unknown_fields` / `invalid_json_returns_none`。
+
+**效果**：此后任何版本升级都不会因 schema 漂移而丢失余额 apikey；已规范化的配置文件不再残留死字段。
+
+### 重构 + 扩展：「清理缓存」升级为「清理无用文件」体系
+
+**背景**
+
+- 原 `清除缓存` 仅覆盖 8 个浏览器/系统缓存目录，且只能「全清」，无法按项选择、无法覆盖 App 残留/开发缓存/Xcode 等高频垃圾，也无自动清理。
+- 本次按 P0→P3 顺序补齐「清理无用文件」范围，并统一接入 NFR-3 的白名单 + 预览 + 二次确认 + 主目录限制安全范式，新增「先移入废纸篓」安全网。
+
+**改动**
+
+- `src-tauri/src/cleanup.rs`（新增，替代已删除的 `cache_whitelist.rs`）：统一扫描/清理/分析/自动清理。
+  - 静态白名单大幅扩充并按风险分级：`browser`/`system`（safe）、`app`（caution）、`dev`/`xcode`/`logs`（safe，Xcode 含 DerivedData/模拟器）、`ios` 备份（danger）。
+  - 动态扫描：应用残留（`Containers`/`Group Containers`/`Application Support`/`Preferences` 中本机已无对应 .app 的 reverse-DNS 孤儿项，danger）、下载过期文件（Downloads 中修改早于 30 天，caution）。
+  - **P0 选择性勾选**：`scan()` 返回全部项，`clean(ids)` 仅清理勾选项；风险分级标注（安全/谨慎/危险）。
+  - **P1 废纸篓安全网**：所有清理先 `move_to_trash()` 移入 `~/.Trash`（文件名加时间戳避免冲突），缓存类目录清理后重建空目录，避免依赖它的应用崩溃；绝不直接硬删。
+  - **P1 应用残留清理**：`scan_leftovers()` 比对已安装 App 的 bundle id（枚举 /Applications、~/Applications）识别孤儿项。
+  - **P2 Xcode/开发缓存**：DerivedData、CoreSimulator、Cargo/npm/pip 等纳入白名单；`bundle_usage()` 按文件夹聚合 `~/Library` 下体积 Top 25（空间占用排行）。
+  - **P3 大文件扫描**：`large_files(threshold)` 扫描常用目录 >= 阈值的大文件，按「大小 + 头部/尾部采样哈希」标记疑似重复（FNV-1a，限时 8s/8000 项防卡顿）。
+  - **P3 自动清理**：`run_auto_clean()` 仅清理 safe 级（排除 Xcode），由 `run_auto_clean_if_due()` 按设置周期执行；`main.rs` 启动后台线程（启动 ~60s 首检 + 每小时）调用，并持久化 `last_auto_clean_ts`。
+- `src-tauri/src/models.rs`：移除旧 `Cache*` 类型，新增 `CleanItem`/`CleanPreview`/`CleanResult`/`BundleUsage`/`LargeFile` 与 `CleanRisk` 枚举；`Settings` 增加 `auto_clean_enabled`/`auto_clean_interval_days`/`last_auto_clean_ts`。
+- `src-tauri/src/commands.rs` + `main.rs`：`scan_cleanup`/`clean_selected`/`bundle_usage`/`large_files`/`trash_path` 替代旧 `preview_cache_cleanup`/`clear_cache`；`main.rs` 注入自动清理定时器线程。
+- `src/components/CleanupPanel.tsx`（新增）：三标签页「清理 / 分析 / 定时」。清理页按分类分组、逐条勾选、风险徽章、两步确认、废纸篓提示；分析页展示空间占用排行与大文件/疑似重复（可单项移入废纸篓）；定时页开关自动清理与周期。
+- `src/components/ResourcePanel.tsx`：移除旧缓存卡，仅保留释放内存 / 刷新 DNS。
+- `src/ipc.ts` / `src/types.ts` / `src/App.tsx`：对接新 API 与类型，主面板渲染顺序调整为 开关 → 资源 → 清理 → 蓝牙 → 余额。
+
+**效果**：清理能力从「8 个固定目录全清」扩展为「可勾选、分级、可回收、可分析、可定时」的完整无用文件治理体系，且全程不越权、可恢复。
+
 ## [0.4.6] - 2026-11-03
 
 ### 优化：消除蓝牙能力在守护启动后的 ~15s 冷启动空白（macOS 27）
