@@ -352,20 +352,21 @@ export function CleanupPanel() {
                             )}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="flex items-center gap-1.5">
-                              <span className="text-[11px] text-white/80">
+                            <span className="flex min-w-0 items-start gap-1.5">
+                              <span className="min-w-0 break-all text-[11px] leading-snug text-white/80">
                                 {it.label}
                               </span>
                               <span
                                 className={
-                                  "rounded px-1 text-[9px] " + risk.cls
+                                  "shrink-0 rounded px-1 text-[9px] leading-snug " +
+                                  risk.cls
                                 }
                               >
                                 {risk.label}
                               </span>
                             </span>
                           </span>
-                          <span className="shrink-0 text-[10px] text-white/50">
+                          <span className="shrink-0 self-start text-[10px] text-white/50">
                             {fmtBytes(it.size_bytes)}
                           </span>
                         </button>
