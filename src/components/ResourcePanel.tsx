@@ -34,7 +34,7 @@ function StatBar({
 }) {
   const p = Math.min(100, Math.max(0, pct));
   return (
-    <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+    <div className="min-w-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
       <div className="flex justify-between items-baseline">
         <span className="text-[10px] text-white/50">{label}</span>
         <span className="text-[13px] font-medium text-white/90">{value}</span>
@@ -43,6 +43,20 @@ function StatBar({
         <div className={`h-full ${bar}`} style={{ width: `${p}%` }} />
       </div>
       {action && <div className="mt-2">{action}</div>}
+    </div>
+  );
+}
+
+/** 上下行合并为一个面板，两个速率用 "/" 分隔 */
+function NetPanel({ down, up }: { down: string; up: string }) {
+  return (
+    <div className="flex min-w-0 flex-col justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+      <span className="text-[10px] text-white/50">↓ 下行 / ↑ 上行</span>
+      <div className="mt-1 text-[11px] font-medium leading-tight">
+        <span className="text-emerald-200">{down}</span>
+        <span className="text-white/40"> / </span>
+        <span className="text-sky-200">{up}</span>
+      </div>
     </div>
   );
 }
@@ -92,12 +106,18 @@ export function ResourcePanel() {
 
   return (
     <div className="mt-3 space-y-2">
-      <StatBar
-        label="CPU"
-        value={stats ? `${stats.cpu_percent.toFixed(0)}%` : "—"}
-        pct={stats ? stats.cpu_percent : 0}
-        bar="bg-amber-400"
-      />
+      <div className="grid grid-cols-2 gap-2">
+        <StatBar
+          label="CPU"
+          value={stats ? `${stats.cpu_percent.toFixed(0)}%` : "—"}
+          pct={stats ? stats.cpu_percent : 0}
+          bar="bg-amber-400"
+        />
+        <NetPanel
+          down={stats ? fmtSpeed(stats.net_down_bps) : "—"}
+          up={stats ? fmtSpeed(stats.net_up_bps) : "—"}
+        />
+      </div>
       <StatBar
         label="内存"
         value={
@@ -124,20 +144,6 @@ export function ResourcePanel() {
           </>
         }
       />
-      <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-          <div className="text-[10px] text-white/50">↓ 下行</div>
-          <div className="text-[13px] font-medium text-emerald-200">
-            {stats ? fmtSpeed(stats.net_down_bps) : "—"}
-          </div>
-        </div>
-        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-          <div className="text-[10px] text-white/50">↑ 上行</div>
-          <div className="text-[13px] font-medium text-sky-200">
-            {stats ? fmtSpeed(stats.net_up_bps) : "—"}
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
