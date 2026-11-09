@@ -56,7 +56,7 @@ pub struct CleanItem {
     pub label: String,
     /// 绝对路径。
     pub path: String,
-    /// 分类键（browser/system/app/dev/xcode/logs/ios/downloads/leftover/custom）。
+    /// 分类键（browser/system/syscache/app/dev/xcode/logs/ios/downloads/leftover/custom）。
     pub category: String,
     /// 分类展示名（如「浏览器缓存」）。
     pub category_label: String,

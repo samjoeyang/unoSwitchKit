@@ -375,9 +375,78 @@ fn scan_downloads_expired(days: u64) -> Vec<CleanItem> {
     items
 }
 
+// ---------------- 动态扫描：用户缓存总览（~/Library/Caches） ----------------
+
+/// 动态扫描的最小体积阈值：低于此值的零碎缓存不展示，减少噪音（可按需放宽）。
+const SYSCACHE_MIN_BYTES: u64 = 1024 * 1024; // 1 MB
+
+/// 已在 `STATIC_TARGETS` 中逐项目录列出的 `Library/Caches/...` 末段名，
+/// 动态扫描时跳过以免与静态目标重复呈现。
+fn static_cache_basenames() -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    for t in STATIC_TARGETS.iter() {
+        if let Some(rest) = t.rel.strip_prefix("Library/Caches/") {
+            if let Some(name) = rest.split('/').next() {
+                set.insert(name.to_string());
+            }
+        }
+    }
+    set
+}
+
+/// 枚举 `~/Library/Caches` 下所有顶层项，作为可清理项呈现
+/// （与 CleanMyMac 的「用户缓存文件」类别一致：Homebrew / VSCode ShipIt / iCloud / clang / Google …）。
+///
+/// 风险定为 `Caution`：这些均为缓存、可重建，但内容混杂（含部分 App 缓存，清了可能丢登录态/离线内容），
+/// 因此只呈现、需用户手动勾选，且**绝不**被自动清理；亦不会被默认勾选。
+fn scan_user_caches() -> Vec<CleanItem> {
+    let caches = home().join("Library").join("Caches");
+    let mut items = Vec::new();
+    if !caches.is_dir() {
+        return items;
+    }
+    // 跳过：本应用自身缓存 + 已在 STATIC_TARGETS 中逐项目录列出的缓存
+    let skip_static = static_cache_basenames();
+    let own_id = "com.switchkit.app";
+    if let Ok(entries) = fs::read_dir(&caches) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            let name = match p.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            if name.starts_with('.') {
+                continue; // 隐藏项跳过
+            }
+            if name == own_id {
+                continue; // 不列出本应用自身缓存，避免自清理
+            }
+            if skip_static.contains(&name) {
+                continue; // 已由静态目标覆盖
+            }
+            let size = file_or_dir_size(&p);
+            if size < SYSCACHE_MIN_BYTES {
+                continue; // 零碎项过滤
+            }
+            items.push(CleanItem {
+                id: format!("syscache:{}", name),
+                label: name.clone(),
+                path: p.to_string_lossy().into(),
+                category: "syscache".into(),
+                category_label: "用户缓存".into(),
+                risk: CleanRisk::Caution,
+                size_bytes: size,
+                exists: p.exists(),
+            });
+        }
+    }
+    items.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
+    items
+}
+
 // ---------------- 汇总扫描 ----------------
 
-/// 收集所有可清理项（静态 + 自定义 + 下载过期 + 应用残留）。
+/// 收集所有可清理项（静态 + 自定义 + 下载过期 + 应用残留 + 用户缓存总览）。
 pub fn collect_items(extra: &[String]) -> Vec<CleanItem> {
     let mut items = Vec::new();
 
@@ -429,6 +498,7 @@ pub fn collect_items(extra: &[String]) -> Vec<CleanItem> {
     items.extend(scan_downloads_expired(30));
     let installed = installed_bundle_ids();
     items.extend(scan_leftovers(&installed));
+    items.extend(scan_user_caches());
 
     items
 }

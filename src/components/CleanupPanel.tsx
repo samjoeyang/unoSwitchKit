@@ -21,6 +21,7 @@ function fmtBytes(b: number): string {
 const CATEGORY_ORDER = [
   "browser",
   "system",
+  "syscache",
   "app",
   "dev",
   "xcode",
