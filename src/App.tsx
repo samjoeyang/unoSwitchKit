@@ -24,6 +24,8 @@ export default function App() {
   const [balanceVersion, setBalanceVersion] = useState(0);
   // 设置项操作提示（alert 在 WKWebView 中被禁用，改用面板内提示）
   const [notice, setNotice] = useState<string | null>(null);
+  // 「刷新 DNS」的一次性反馈，覆盖 ToggleGrid 对应项的状态副标题
+  const [dnsStatus, setDnsStatus] = useState<string | null>(null);
   // 应用版本：运行时从二进制读取（getVersion），避免硬编码与发布版本脱节
   const [appVersion, setAppVersion] = useState("0.4.2");
 
@@ -76,6 +78,13 @@ export default function App() {
     };
   }, []);
 
+  // 刷新 DNS 的一次性反馈，3 秒后还原默认副标题
+  useEffect(() => {
+    if (!dnsStatus) return;
+    const t = window.setTimeout(() => setDnsStatus(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [dnsStatus]);
+
   // 设置面板展开在底栏上方，展开后滚到底部，保证面板与底栏都在可视区内
   useEffect(() => {
     if (!showSettings) return;
@@ -104,6 +113,14 @@ export default function App() {
       else if (key === "clear_clipboard") await api.clearClipboard();
       else if (key === "screensaver") await api.startScreensaver();
       else if (key === "close_all_apps") await api.closeAllApps();
+      else if (key === "flush_dns") {
+        try {
+          await api.flushDns();
+          setDnsStatus("已刷新");
+        } catch {
+          setDnsStatus("刷新失败");
+        }
+      }
       await refresh();
     } catch (e) {
       alert(`操作失败：${e}`);
@@ -157,7 +174,12 @@ export default function App() {
         <span className="text-[10px] text-white/40">v{appVersion}</span>
       </div>
 
-      <ToggleGrid states={states} busyKey={busy} onToggle={onToggle} />
+      <ToggleGrid
+        states={states}
+        busyKey={busy}
+        onToggle={onToggle}
+        statusOverrides={dnsStatus ? { flush_dns: dnsStatus } : undefined}
+      />
       <ResourcePanel />
       <CleanupPanel />
       <BluetoothSection />

@@ -13,7 +13,8 @@ export type ToggleKey =
   | "lock_screen"
   | "clear_clipboard"
   | "screensaver"
-  | "close_all_apps";
+  | "close_all_apps"
+  | "flush_dns";
 
 interface Item {
   key: ToggleKey;
@@ -99,20 +100,34 @@ const ITEMS: Item[] = [
     status: () => "逐个退出",
     active: () => false,
   },
+  {
+    key: "flush_dns",
+    label: "刷新 DNS",
+    status: () => "点击刷新",
+    active: () => false,
+  },
 ];
 
 interface Props {
   states: ToggleStates | null;
   busyKey: string | null;
   onToggle: (key: ToggleKey) => void;
+  /** 覆盖某项的状态副标题（用于一次性操作反馈，如「已刷新」） */
+  statusOverrides?: Partial<Record<ToggleKey, string>>;
 }
 
-export function ToggleGrid({ states, busyKey, onToggle }: Props) {
+export function ToggleGrid({
+  states,
+  busyKey,
+  onToggle,
+  statusOverrides,
+}: Props) {
   const visible = states ? ITEMS.filter((it) => !it.hidden?.(states)) : ITEMS;
   return (
     <div className="grid grid-cols-2 gap-2">
       {visible.map((it) => {
-        const status = states ? it.status(states) : "—";
+        const status =
+          statusOverrides?.[it.key] ?? (states ? it.status(states) : "—");
         const active = states ? it.active(states) : false;
         const busy = busyKey === it.key;
         return (

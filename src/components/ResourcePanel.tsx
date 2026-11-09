@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import type { MemoryComparison, SystemStats } from "../types";
+import { useEffect, useState, type ReactNode } from "react";
+import type { SystemStats } from "../types";
 import { api } from "../ipc";
 
 function fmtMB(mb: number) {
@@ -24,11 +24,13 @@ function StatBar({
   value,
   pct,
   bar,
+  action,
 }: {
   label: string;
   value: string;
   pct: number;
   bar: string;
+  action?: ReactNode;
 }) {
   const p = Math.min(100, Math.max(0, pct));
   return (
@@ -40,13 +42,13 @@ function StatBar({
       <div className="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
         <div className={`h-full ${bar}`} style={{ width: `${p}%` }} />
       </div>
+      {action && <div className="mt-2">{action}</div>}
     </div>
   );
 }
 
 export function ResourcePanel() {
-  const [busy, setBusy] = useState<string | null>(null);
-  const [cmp, setCmp] = useState<MemoryComparison | null>(null);
+  const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>("");
   const [stats, setStats] = useState<SystemStats | null>(null);
 
@@ -71,30 +73,15 @@ export function ResourcePanel() {
   }, []);
 
   async function release() {
-    setBusy("mem");
+    setBusy(true);
     setMsg("");
     try {
       const r = await api.releaseMemory();
-      setCmp(r);
-      setMsg(
-        `内存已释放：使用 ${fmtMB(r.before.used_mb)} → ${fmtMB(r.after.used_mb)}`
-      );
+      setMsg(`内存已释放：使用 ${fmtMB(r.before.used_mb)} → ${fmtMB(r.after.used_mb)}`);
     } catch (e) {
       setMsg(`释放失败：${e}`);
     } finally {
-      setBusy(null);
-    }
-  }
-  async function flush() {
-    setBusy("dns");
-    setMsg("");
-    try {
-      await api.flushDns();
-      setMsg("DNS 缓存已刷新");
-    } catch (e) {
-      setMsg(`刷新失败：${e}`);
-    } finally {
-      setBusy(null);
+      setBusy(false);
     }
   }
 
@@ -105,67 +92,52 @@ export function ResourcePanel() {
 
   return (
     <div className="mt-3 space-y-2">
-      {stats && (
-        <div className="space-y-2">
-          <StatBar
-            label="CPU"
-            value={`${stats.cpu_percent.toFixed(0)}%`}
-            pct={stats.cpu_percent}
-            bar="bg-amber-400"
-          />
-          <StatBar
-            label="内存"
-            value={`${fmtBytes(stats.mem_used_bytes)} / ${fmtBytes(
-              stats.mem_total_bytes
-            )}`}
-            pct={memPct}
-            bar="bg-violet-400"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-              <div className="text-[10px] text-white/50">↓ 下行</div>
-              <div className="text-[13px] font-medium text-emerald-200">
-                {fmtSpeed(stats.net_down_bps)}
-              </div>
+      <StatBar
+        label="CPU"
+        value={stats ? `${stats.cpu_percent.toFixed(0)}%` : "—"}
+        pct={stats ? stats.cpu_percent : 0}
+        bar="bg-amber-400"
+      />
+      <StatBar
+        label="内存"
+        value={
+          stats
+            ? `${fmtBytes(stats.mem_used_bytes)} / ${fmtBytes(stats.mem_total_bytes)}`
+            : "—"
+        }
+        pct={memPct}
+        bar="bg-violet-400"
+        action={
+          <>
+            <div className="flex justify-end">
+              <button
+                onClick={release}
+                disabled={busy}
+                className="rounded-lg border border-white/10 bg-indigo-500/15 px-2.5 py-1 text-[11px] font-medium text-indigo-100 hover:bg-indigo-500/25 disabled:opacity-50"
+              >
+                {busy ? "释放中…" : "释放内存"}
+              </button>
             </div>
-            <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-              <div className="text-[10px] text-white/50">↑ 上行</div>
-              <div className="text-[13px] font-medium text-sky-200">
-                {fmtSpeed(stats.net_up_bps)}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+            {msg && (
+              <div className="mt-1.5 text-[11px] text-white/60">{msg}</div>
+            )}
+          </>
+        }
+      />
       <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={release}
-          disabled={busy === "mem"}
-          className="rounded-xl border border-white/10 bg-indigo-500/15 px-3 py-2 text-[13px] font-medium text-indigo-100 hover:bg-indigo-500/25 disabled:opacity-50"
-        >
-          {busy === "mem" ? "释放中…" : "释放内存"}
-        </button>
-        <button
-          onClick={flush}
-          disabled={busy === "dns"}
-          className="rounded-xl border border-white/10 bg-sky-500/15 px-3 py-2 text-[13px] font-medium text-sky-100 hover:bg-sky-500/25 disabled:opacity-50"
-        >
-          {busy === "dns" ? "刷新中…" : "刷新 DNS"}
-        </button>
-      </div>
-
-      {cmp && (
-        <div className="rounded-xl border border-white/10 bg-white/5 p-3 text-[11px] text-white/70">
-          <div className="flex justify-between">
-            <span>内存使用</span>
-            <span>
-              {fmtMB(cmp.before.used_mb)} → {fmtMB(cmp.after.used_mb)}
-            </span>
+        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+          <div className="text-[10px] text-white/50">↓ 下行</div>
+          <div className="text-[13px] font-medium text-emerald-200">
+            {stats ? fmtSpeed(stats.net_down_bps) : "—"}
           </div>
         </div>
-      )}
-      {msg && <div className="text-[11px] text-white/60">{msg}</div>}
+        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+          <div className="text-[10px] text-white/50">↑ 上行</div>
+          <div className="text-[13px] font-medium text-sky-200">
+            {stats ? fmtSpeed(stats.net_up_bps) : "—"}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
