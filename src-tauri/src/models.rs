@@ -36,7 +36,7 @@ pub struct MemoryComparison {
 }
 
 /// 清理项的风险等级（决定能否被自动清理 / 是否需要警告）。
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum CleanRisk {
     /// 安全：系统/浏览器/开发缓存，可随时重建，允许自动清理。
@@ -115,6 +115,23 @@ pub struct LargeFile {
     pub duplicate: bool,
 }
 
+/// 废纸篓中由本应用移入的项（供「回收站」面板恢复 / 清空）。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct TrashItem {
+    /// 唯一标识（移入后路径，稳定）。
+    pub id: String,
+    /// 展示名（原目录 / 文件名）。
+    pub name: String,
+    /// 原路径（恢复目标）。
+    pub original_path: String,
+    /// 移入后路径（废纸篓内，恢复时据此定位）。
+    pub trashed_path: String,
+    /// 占用大小（字节）。
+    pub size_bytes: u64,
+    /// 移入时间戳（秒）。
+    pub moved_at: i64,
+}
+
 /// 持久化设置（JSON 文件，存于 AppConfig 目录）。
 #[derive(Serialize, Deserialize, Clone, Default)]
 pub struct Settings {
@@ -140,10 +157,21 @@ pub struct Settings {
     /// 上次自动清理的时间戳（秒）；0 表示从未执行。
     #[serde(default)]
     pub last_auto_clean_ts: i64,
+    /// 持久化排除列表（绝对路径）：这些路径永不在清理清单中出现，
+    /// 对应 macos-system-cleaner 的 `--keep`，用于用户声明「永不清理」。
+    #[serde(default)]
+    pub exclude_paths: Vec<String>,
+    /// 下载目录过期文件判定天数（修改时间早于该天数视为可清理），默认 30。
+    #[serde(default = "default_downloads_expire_days")]
+    pub downloads_expire_days: u32,
 }
 
 fn default_auto_clean_interval() -> u32 {
     7
+}
+
+fn default_downloads_expire_days() -> u32 {
+    30
 }
 
 /// 一个模型平台 API Key 配置。

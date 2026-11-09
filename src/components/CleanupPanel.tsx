@@ -7,6 +7,7 @@ import type {
   CleanRisk,
   LargeFile,
   Settings,
+  TrashItem,
 } from "../types";
 import { api } from "../ipc";
 
@@ -30,6 +31,8 @@ const CATEGORY_ORDER = [
   "downloads",
   "leftover",
   "custom",
+  "ai",
+  "mail",
 ];
 
 const RISK_META: Record<CleanRisk, { label: string; cls: string }> = {
@@ -51,7 +54,7 @@ function PathRow({ path, size }: { path: string; size: string }) {
 }
 
 export function CleanupPanel() {
-  const [tab, setTab] = useState<"clean" | "analysis" | "schedule">("clean");
+  const [tab, setTab] = useState<"clean" | "analysis" | "schedule" | "trash">("clean");
   const [preview, setPreview] = useState<CleanPreview | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState<string | null>(null);
@@ -75,6 +78,10 @@ export function CleanupPanel() {
   // 定时
   const [settings, setSettings] = useState<Settings | null>(null);
   const [schedBusy, setSchedBusy] = useState(false);
+
+  // 回收站（本应用移入废纸篓的项）
+  const [trashItems, setTrashItems] = useState<TrashItem[] | null>(null);
+  const [trashBusy, setTrashBusy] = useState(false);
 
   /// silent=true 用于清理后重扫：保留结果卡，不清空提示。
   async function scanCleanup(silent = false) {
@@ -155,8 +162,21 @@ export function CleanupPanel() {
       setConfirmClear(true);
       setResult(null);
       setResultError("");
+      const selItems = preview
+        ? preview.items.filter((i) => selected.has(i.id))
+        : [];
+      const dangerCount = selItems.filter((i) => i.risk === "danger").length;
+      const cautionCount = selItems.filter((i) => i.risk === "caution").length;
+      let warn = "";
+      if (dangerCount > 0) {
+        warn = `含 ${dangerCount} 项危险项（如 iOS 备份、应用残留），`;
+      } else if (cautionCount > 0) {
+        warn = `含 ${cautionCount} 项谨慎项（如 App 缓存），`;
+      }
       setMsg(
-        `将清理 ${selected.size} 项（约 ${fmtBytes(selectedBytes)}），再次点击确认。先移入废纸篓，可恢复`
+        `将${warn}清理 ${selected.size} 项（约 ${fmtBytes(
+          selectedBytes
+        )}）。先移入废纸篓、可恢复，再次点击确认。`
       );
       return;
     }
@@ -233,6 +253,80 @@ export function CleanupPanel() {
     }
   }
 
+  // ---------------- 回收站 ----------------
+
+  async function loadTrash() {
+    setTrashBusy(true);
+    try {
+      setTrashItems(await api.listTrashItems());
+    } catch (e) {
+      setMsg(`加载回收站失败：${e}`);
+    } finally {
+      setTrashBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === "trash" && trashItems === null) loadTrash();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  async function restoreTrash(t: TrashItem) {
+    setTrashBusy(true);
+    try {
+      await api.restoreTrashItem(t.trashed_path);
+      setMsg(`已恢复：${t.name}`);
+      await loadTrash();
+    } catch (e) {
+      setMsg(`恢复失败：${e}`);
+    } finally {
+      setTrashBusy(false);
+    }
+  }
+
+  async function emptyTrashItems() {
+    setTrashBusy(true);
+    try {
+      const n = await api.emptySwitchkitTrash();
+      setMsg(`已清空本应用移入废纸篓的 ${n} 项`);
+      await loadTrash();
+    } catch (e) {
+      setMsg(`清空失败：${e}`);
+    } finally {
+      setTrashBusy(false);
+    }
+  }
+
+  /// 将清理项加入持久化排除列表（永不出现在清单中）。
+  async function excludeItem(it: CleanItem) {
+    if (!settings) return;
+    if (settings.exclude_paths.includes(it.path)) {
+      setMsg(`「${it.label}」已在排除列表`);
+      return;
+    }
+    const next = {
+      ...settings,
+      exclude_paths: [...settings.exclude_paths, it.path],
+    };
+    try {
+      await api.saveSettings(next);
+      setSettings(next);
+      setMsg(`已将「${it.label}」加入排除列表`);
+      await scanCleanup();
+    } catch (e) {
+      setMsg(`排除失败：${e}`);
+    }
+  }
+
+  function trashTime(ts: number): string {
+    if (!ts) return "";
+    const d = new Date(ts * 1000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(
+      d.getHours()
+    )}:${pad(d.getMinutes())}`;
+  }
+
   function lastRunText(ts: number): string {
     if (!ts) return "从未";
     const diff = Math.floor(Date.now() / 1000 - ts);
@@ -245,6 +339,7 @@ export function CleanupPanel() {
     { key: "clean", label: "清理" },
     { key: "analysis", label: "分析" },
     { key: "schedule", label: "定时" },
+    { key: "trash", label: "回收站" },
   ];
 
   return (
@@ -366,8 +461,21 @@ export function CleanupPanel() {
                               </span>
                             </span>
                           </span>
-                          <span className="shrink-0 self-start text-[10px] text-white/50">
-                            {fmtBytes(it.size_bytes)}
+                          <span className="flex shrink-0 items-center gap-1 self-start">
+                            <span className="text-[10px] text-white/50">
+                              {fmtBytes(it.size_bytes)}
+                            </span>
+                            <span
+                              role="button"
+                              title="加入排除列表（永不清理）"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                excludeItem(it);
+                              }}
+                              className="cursor-pointer rounded px-1 text-[11px] text-white/30 hover:text-rose-300"
+                            >
+                              ⊘
+                            </span>
                           </span>
                         </button>
                       );
@@ -566,8 +674,73 @@ export function CleanupPanel() {
               ))}
             </div>
           </div>
+          <div className="flex items-center justify-between">
+            <span className="text-[12px] text-white/85">下载过期天数</span>
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={settings.downloads_expire_days}
+              onChange={(e) =>
+                saveSchedule({
+                  downloads_expire_days: Math.max(
+                    1,
+                    Math.min(365, parseInt(e.target.value) || 30)
+                  ),
+                })
+              }
+              className="w-16 rounded bg-white/10 px-1.5 py-0.5 text-[11px] text-white/85 outline-none"
+            />
+          </div>
           <div className="text-[10px] leading-snug text-white/40">
             自动清理只动「安全」级缓存，不会触碰 App 数据、应用残留与文件，且同样先移入废纸篓。
+          </div>
+        </div>
+      )}
+
+      {tab === "trash" && (
+        <div className="mt-2">
+          <div className="mb-1.5 flex items-center justify-between">
+            <span className="text-[10px] text-white/45">本应用移入废纸篓的项</span>
+            <button
+              onClick={emptyTrashItems}
+              disabled={trashBusy}
+              className="text-[11px] text-white/60 hover:text-white/90 disabled:opacity-40"
+            >
+              {trashBusy ? "处理中…" : "清空本应用项"}
+            </button>
+          </div>
+          <div className="thin-scroll max-h-44 space-y-1 overflow-y-auto pr-1">
+            {(trashItems ?? []).map((t) => (
+              <div key={t.id} className="flex items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="truncate text-[11px] text-white/80"
+                    title={t.original_path}
+                  >
+                    {t.name}
+                  </div>
+                  <div className="text-[9px] text-white/35">
+                    {trashTime(t.moved_at)} · {fmtBytes(t.size_bytes)}
+                  </div>
+                </div>
+                <button
+                  onClick={() => restoreTrash(t)}
+                  disabled={trashBusy}
+                  className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-white/65 hover:bg-white/20 disabled:opacity-40"
+                >
+                  恢复
+                </button>
+              </div>
+            ))}
+            {(trashItems ?? []).length === 0 && (
+              <div className="text-[10px] text-white/40">
+                {trashBusy ? "加载中…" : "暂无本应用移入的项"}
+              </div>
+            )}
+          </div>
+          <div className="mt-1 text-[10px] leading-snug text-white/40">
+            这里的项来自清理操作；清空才真正释放磁盘空间。也可在 Finder 废纸篓中手动恢复。
           </div>
         </div>
       )}
@@ -595,15 +768,24 @@ export function CleanupPanel() {
               ✓
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-[11px] font-medium text-emerald-200">
-                清理完成 · 释放 {fmtBytes(result.freed_bytes)}
-              </div>
-              <div className="mt-0.5 text-[10px] leading-snug text-white/60">
-                成功 {result.cleaned_count} 项，已移入废纸篓（可恢复）
-                {result.failed.length > 0
-                  ? ` · ${result.failed.length} 项未能清理`
-                  : " · 全部成功"}
-              </div>
+            <div className="text-[11px] font-medium text-emerald-200">
+              已转移 {fmtBytes(result.freed_bytes)} 至废纸篓
+            </div>
+            <div className="mt-0.5 text-[10px] leading-snug text-white/60">
+              成功 {result.cleaned_count} 项，已移入废纸篓（可恢复；清空废纸篓后才真正释放空间）
+              {result.failed.length > 0
+                ? ` · ${result.failed.length} 项未能清理`
+                : " · 全部成功"}
+            </div>
+            {result.cleaned_count > 0 && (
+              <button
+                onClick={emptyTrashItems}
+                disabled={trashBusy}
+                className="mt-1 rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/60 hover:bg-white/20 disabled:opacity-40"
+              >
+                清空本应用移入的废纸篓项（释放空间）
+              </button>
+            )}
               {result.failed.length > 0 && (
                 <div className="mt-1">
                   <button

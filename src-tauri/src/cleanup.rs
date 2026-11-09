@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::models::*;
 use crate::util;
@@ -75,6 +75,48 @@ fn file_or_dir_size(path: &Path) -> u64 {
     }
 }
 
+/// 带截止时间的目录大小统计（P2-10）。
+///
+/// 扫描大目录（Xcode DerivedData / node_modules / `.cache` 等）时，
+/// 全量递归可能阻塞数秒乃至更久。此版本在 `deadline` 之后停止更深递归，
+/// 返回「已累加的直接文件 + 已完成子目录」的近似值，保证扫描及时返回，
+/// 牺牲少量精度换取 UI 不卡顿。
+fn dir_size_deadline(path: &Path, deadline: Instant) -> u64 {
+    let mut total = 0u64;
+    let entries = match fs::read_dir(path) {
+        Ok(e) => e,
+        Err(_) => return 0,
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if let Ok(meta) = entry.metadata() {
+            if meta.is_dir() {
+                if Instant::now() > deadline {
+                    // 超时：不再递归更深，仅以 0 计入该子目录（近似）
+                    continue;
+                }
+                total += dir_size_deadline(&p, deadline);
+            } else {
+                total += meta.len();
+            }
+        }
+    }
+    total
+}
+
+/// 带截止时间的文件/目录大小（目录递归，超时近似）。
+fn file_or_dir_size_deadline(path: &Path, deadline: Instant) -> u64 {
+    if let Ok(meta) = fs::metadata(path) {
+        if meta.is_dir() {
+            dir_size_deadline(path, deadline)
+        } else {
+            meta.len()
+        }
+    } else {
+        0
+    }
+}
+
 fn remove_path(path: &Path) {
     if path.is_dir() {
         let _ = fs::remove_dir_all(path);
@@ -99,8 +141,44 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+// ---------------- 废纸篓清单（回收站） ----------------
+
+/// 废纸篓清单记录（内部，存于 `~/.Trash/switchkit-manifest.json`）。
+/// 用于「回收站」面板列出本应用移入的项并支持一键恢复。
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+struct TrashRecord {
+    original_path: String,
+    trashed_path: String,
+    size_bytes: u64,
+    moved_at: i64,
+}
+
+/// 清单文件路径（`~/.Trash/switchkit-manifest.json`）。
+fn trash_manifest_path() -> PathBuf {
+    home().join(".Trash").join("switchkit-manifest.json")
+}
+
+/// 把一次「移入废纸篓」记录追加进清单（读-改-写，best-effort）。
+fn record_trash(original: &Path, trashed: &Path) {
+    let manifest = trash_manifest_path();
+    let mut records: Vec<TrashRecord> = match fs::read_to_string(&manifest) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    };
+    records.push(TrashRecord {
+        original_path: original.to_string_lossy().to_string(),
+        trashed_path: trashed.to_string_lossy().to_string(),
+        size_bytes: file_or_dir_size(trashed),
+        moved_at: now_secs() as i64,
+    });
+    if let Ok(json) = serde_json::to_string_pretty(&records) {
+        let _ = fs::write(&manifest, json);
+    }
+}
+
 /// 将路径移入废纸篓（`~/.Trash`），文件名加时间戳前缀避免冲突。
 /// 同卷走 `rename`（瞬时）；跨设备回退 copy + 删除。
+/// 成功后向清单追加一条记录（供「回收站」面板恢复）。
 fn move_to_trash(path: &Path) -> Result<PathBuf, String> {
     let trash = home().join(".Trash");
     fs::create_dir_all(&trash).map_err(|e| e.to_string())?;
@@ -117,11 +195,113 @@ fn move_to_trash(path: &Path) -> Result<PathBuf, String> {
         i += 1;
     }
     if fs::rename(path, &dest).is_ok() {
+        record_trash(path, &dest);
         return Ok(dest);
     }
     copy_dir_recursive(path, &dest).map_err(|e| e.to_string())?;
     remove_path(path);
+    record_trash(path, &dest);
     Ok(dest)
+}
+
+/// 列出本应用移入废纸篓的项（供回收站面板恢复 / 清空）。
+/// 自动剔除已在 Finder 中手动清空的记录。
+pub fn list_trash_items() -> Vec<TrashItem> {
+    let manifest = trash_manifest_path();
+    let records: Vec<TrashRecord> = match fs::read_to_string(&manifest) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    let mut alive_idx: Vec<usize> = Vec::new();
+    for (i, r) in records.iter().enumerate() {
+        let p = PathBuf::from(&r.trashed_path);
+        if p.exists() {
+            let name = PathBuf::from(&r.original_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("item")
+                .to_string();
+            out.push(TrashItem {
+                id: r.trashed_path.clone(),
+                name,
+                original_path: r.original_path.clone(),
+                trashed_path: r.trashed_path.clone(),
+                size_bytes: r.size_bytes,
+                moved_at: r.moved_at,
+            });
+            alive_idx.push(i);
+        }
+    }
+    // 清理 manifest 中已不存在的记录（用户在 Finder 里手动清了废纸篓）
+    if alive_idx.len() != records.len() {
+        let kept: Vec<TrashRecord> =
+            alive_idx.into_iter().map(|i| records[i].clone()).collect();
+        if let Ok(json) = serde_json::to_string_pretty(&kept) {
+            let _ = fs::write(&manifest, json);
+        }
+    }
+    out.sort_by(|a, b| b.moved_at.cmp(&a.moved_at));
+    out
+}
+
+/// 将移入废纸篓的项恢复回原路径（覆盖前先校验原路径不存在）。
+pub fn restore_trash_item(trashed_path: &str) -> Result<(), String> {
+    let manifest = trash_manifest_path();
+    let mut records: Vec<TrashRecord> =
+        match fs::read_to_string(&manifest) {
+            Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+            Err(_) => return Err("无废纸篓清单".into()),
+        };
+    let pos = records.iter().position(|r| r.trashed_path == trashed_path);
+    let Some(idx) = pos else {
+        return Err("清单中无此记录".into());
+    };
+    let rec = records[idx].clone();
+    let src = PathBuf::from(&rec.trashed_path);
+    if !src.exists() {
+        return Err("废纸篓中已不存在该项".into());
+    }
+    let dest = PathBuf::from(&rec.original_path);
+    if dest.exists() {
+        return Err("原路径已存在，恢复会覆盖，已取消".into());
+    }
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    fs::rename(&src, &dest).map_err(|e| e.to_string())?;
+    records.remove(idx);
+    if let Ok(json) = serde_json::to_string_pretty(&records) {
+        let _ = fs::write(&manifest, json);
+    }
+    Ok(())
+}
+
+/// 清空本应用移入废纸篓的所有项（仅删 `switchkit-` 前缀，不动系统其它废纸篓文件）。
+/// 返回删除项数量。
+pub fn empty_switchkit_trash() -> u32 {
+    let trash = home().join(".Trash");
+    let manifest_name = "switchkit-manifest.json";
+    let mut removed = 0u32;
+    if trash.exists() {
+        if let Ok(entries) = fs::read_dir(&trash) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                let name = match p.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                if name == manifest_name || !name.starts_with("switchkit-") {
+                    continue;
+                }
+                remove_path(&p);
+                removed += 1;
+            }
+        }
+    }
+    // 清空清单
+    let _ = fs::write(&trash_manifest_path(), "[]");
+    removed
 }
 
 // ---------------- 静态清理目标 ----------------
@@ -177,23 +357,55 @@ const STATIC_TARGETS: &[Target] = &[
     Target { id: "dev-cocoapods", label: "CocoaPods 缓存", rel: "Library/Caches/org.cocoapods", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
     Target { id: "dev-go", label: "Go 模块缓存", rel: "Library/Caches/go-build", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
     Target { id: "dev-rust", label: "Rust 编译缓存", rel: "Library/Caches/rustc", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    // —— 统一清单补全：原仅 skill 覆盖的文件型开发缓存缺口 ——
+    Target { id: "dev-pip-cache", label: "pip 缓存 (~/.cache/pip)", rel: ".cache/pip", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-uv-cache", label: "uv 缓存 (~/.cache/uv)", rel: ".cache/uv", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-virtualenvs", label: "virtualenvs (~/.virtualenvs)", rel: ".virtualenvs", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
+    Target { id: "dev-npm-npx", label: "npm _npx 缓存", rel: ".npm/_npx", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-npm-prebuilds", label: "npm _prebuilds", rel: ".npm/_prebuilds", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-npm-logs", label: "npm _logs", rel: ".npm/_logs", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-node-gyp", label: "node-gyp 编译头", rel: ".node-gyp", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-pnpm-cache", label: "pnpm 缓存 (~/.cache/pnpm)", rel: ".cache/pnpm", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-yarn-cache", label: "Yarn 缓存 (~/.cache/yarn)", rel: ".cache/yarn", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-pnpm-store", label: "pnpm store (~/.pnpm-store)", rel: ".pnpm-store", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-rustup-dl", label: "rustup 下载缓存", rel: ".rustup/downloads", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-rustup-tmp", label: "rustup 临时文件", rel: ".rustup/tmp", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-ruby-gem-cache", label: "Ruby gem 缓存", rel: ".gem/cache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-ruby-gem-specs", label: "Ruby gem specs", rel: ".gem/specs", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-ruby-bundle", label: "Bundler 缓存", rel: ".bundle/cache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-nuget", label: "NuGet 缓存", rel: ".nuget", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-composer", label: "Composer 缓存", rel: ".composer/cache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-ivy", label: "Ivy 缓存", rel: ".ivy2/cache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-conda-miniconda", label: "conda 环境 (miniconda3/envs)", rel: "miniconda3/envs", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
+    Target { id: "dev-conda-anaconda", label: "conda 环境 (anaconda3/envs)", rel: "anaconda3/envs", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
+    Target { id: "dev-conda-base", label: "conda 环境 (~/.conda/envs)", rel: ".conda/envs", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
     // Xcode / 模拟器（safe，但体积大）
     Target { id: "xcode-derived", label: "Xcode 派生数据", rel: "Library/Developer/DerivedData", category: "xcode", category_label: "Xcode / 模拟器", risk: CleanRisk::Safe },
     Target { id: "xcode-simulator", label: "模拟器数据", rel: "Library/Developer/CoreSimulator/Devices", category: "xcode", category_label: "Xcode / 模拟器", risk: CleanRisk::Safe },
     Target { id: "xcode-cache", label: "Xcode 缓存", rel: "Library/Caches/com.apple.dt.Xcode", category: "xcode", category_label: "Xcode / 模拟器", risk: CleanRisk::Safe },
     Target { id: "xcode-devicelogs", label: "Xcode 设备日志", rel: "Library/Developer/Xcode/Logs", category: "xcode", category_label: "Xcode / 模拟器", risk: CleanRisk::Safe },
+    // —— 统一清单补全：Xcode 额外目录 ——
+    Target { id: "xcode-archives", label: "Xcode Archives", rel: "Library/Developer/Xcode/Archives", category: "xcode", category_label: "Xcode / 模拟器", risk: CleanRisk::Safe },
+    Target { id: "xcode-devicesupport", label: "Xcode iOS DeviceSupport", rel: "Library/Developer/Xcode/iOS DeviceSupport", category: "xcode", category_label: "Xcode / 模拟器", risk: CleanRisk::Safe },
     // 系统日志（safe）
     Target { id: "logs-user", label: "用户日志", rel: "Library/Logs", category: "logs", category_label: "系统日志", risk: CleanRisk::Safe },
     Target { id: "logs-diag", label: "崩溃报告", rel: "Library/DiagnosticReports", category: "logs", category_label: "系统日志", risk: CleanRisk::Safe },
     Target { id: "logs-spm", label: "SwiftPM 日志", rel: "Library/Logs/org.swift.swiftpm", category: "logs", category_label: "系统日志", risk: CleanRisk::Safe },
     // iOS 备份（danger：巨大，需显式选择，绝不自动）
     Target { id: "ios-backup", label: "iOS 备份", rel: "Library/Application Support/MobileSync/Backup", category: "ios", category_label: "iOS 备份", risk: CleanRisk::Danger },
+    // —— 统一清单补全：AI 模型与邮件（体积大 / 重建成本高，caution，绝不自动清理）——
+    Target { id: "ai-huggingface", label: "HuggingFace 模型", rel: ".cache/huggingface", category: "ai", category_label: "AI 模型", risk: CleanRisk::Caution },
+    Target { id: "ai-torch", label: "PyTorch 缓存", rel: ".cache/torch", category: "ai", category_label: "AI 模型", risk: CleanRisk::Caution },
+    Target { id: "ai-ollama", label: "Ollama 模型", rel: ".ollama", category: "ai", category_label: "AI 模型", risk: CleanRisk::Caution },
+    Target { id: "ai-lmstudio", label: "LM Studio 模型", rel: "Library/Application Support/LM Studio", category: "ai", category_label: "AI 模型", risk: CleanRisk::Caution },
+    Target { id: "mail-downloads", label: "邮件下载附件", rel: "Library/Mail Downloads", category: "mail", category_label: "邮件垃圾", risk: CleanRisk::Caution },
 ];
 
 /// 哪些分类在清理后应「重建空目录」（避免依赖该目录的应用崩溃）。
-/// 残留 / 下载过期通常是文件或孤儿目录，不重建。
+/// 残留 / 下载过期 / 开发环境通常是文件或自管理目录，不重建：
+/// venv / node_modules 下次运行会自行重建，留空目录反成无意义残留。
 fn recreate_after_clean(category: &str) -> bool {
-    !matches!(category, "leftover" | "downloads")
+    !matches!(category, "leftover" | "downloads" | "dev")
 }
 
 // ---------------- 动态扫描：已安装 App 的 bundle id ----------------
@@ -334,17 +546,44 @@ fn scan_leftovers(installed: &std::collections::HashSet<String>) -> Vec<CleanIte
 
 // ---------------- 动态扫描：下载过期文件 ----------------
 
-/// 扫描 ~/Downloads 中修改时间早于 `days` 天的项（下载满 N 天未改动）。
-fn scan_downloads_expired(days: u64) -> Vec<CleanItem> {
+/// 扫描 ~/Downloads 中修改时间早于 `days` 天的项（递归子目录，带超时）。
+///
+/// 仅列出文件（目录只用于递归探索，从不单独列出），避免父子重复计数；
+/// 受 `deadline` 与数量上限限流，超时即停止，避免大 Downloads 卡住扫描。
+fn scan_downloads_expired(days: u64, deadline: Instant) -> Vec<CleanItem> {
     let dl = home().join("Downloads");
     let mut items = Vec::new();
     if !dl.is_dir() {
         return items;
     }
     let cutoff = now_secs().saturating_sub(days * 86400);
-    if let Ok(entries) = fs::read_dir(&dl) {
+    let mut count = 0usize;
+    walk_downloads_expired(&dl, cutoff, &mut items, &mut count, deadline, 0, 4);
+    items
+}
+
+fn walk_downloads_expired(
+    dir: &Path,
+    cutoff: u64,
+    found: &mut Vec<CleanItem>,
+    count: &mut usize,
+    deadline: Instant,
+    depth: u32,
+    max_depth: u32,
+) {
+    if depth > max_depth || Instant::now() > deadline || *count > 8000 {
+        return;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
     for entry in entries.flatten() {
+        if Instant::now() > deadline || *count > 8000 {
+            return;
+        }
         let p = entry.path();
+        *count += 1;
         if let Ok(meta) = fs::metadata(&p) {
             let mtime = meta
                 .modified()
@@ -352,27 +591,28 @@ fn scan_downloads_expired(days: u64) -> Vec<CleanItem> {
                 .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(0);
-            if mtime > 0 && mtime < cutoff {
+            let expired = mtime > 0 && mtime < cutoff;
+            if meta.is_dir() {
+                walk_downloads_expired(&p, cutoff, found, count, deadline, depth + 1, max_depth);
+            } else if expired {
                 let name = p
                     .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("item")
                     .to_string();
-                items.push(CleanItem {
+                found.push(CleanItem {
                     id: format!("downloads:{}", p.to_string_lossy()),
                     label: name,
                     path: p.to_string_lossy().to_string(),
                     category: "downloads".into(),
                     category_label: "下载过期".into(),
                     risk: CleanRisk::Caution,
-                    size_bytes: file_or_dir_size(&p),
+                    size_bytes: meta.len(),
                     exists: true,
                 });
             }
         }
     }
-    }
-    items
 }
 
 // ---------------- 动态扫描：用户缓存总览（~/Library/Caches） ----------------
@@ -444,16 +684,178 @@ fn scan_user_caches() -> Vec<CleanItem> {
     items
 }
 
+// ---------------- 动态扫描：开发环境（venv / node_modules） ----------------
+
+/// 开发目录根（仅这些根下深度 ≤2 扫 venv / node_modules，避免全机慢扫与误伤）。
+const DEV_ROOTS: &[&str] = &[
+    "Projects", "projects", "code", "dev", "Developer", "work", "workspace",
+    "Documents", "Desktop", "Downloads",
+];
+
+/// 扫描时跳过的目录名（用户声明保留的巨型项目 / 本应用自身 / 不应作为环境候选的目录）。
+const DEVENV_SKIP: &[&str] = &[
+    "unokb-weknora",
+    "unokb-dify-weknora-ragflow",
+    "unoSwitchKit",
+    "Library",
+    ".cache",
+    ".git",
+];
+
+/// 验证候选目录是否为真实虚拟环境 / 依赖目录（名称不可信，只看标记文件）。
+fn is_real_env(p: &Path, name: &str) -> bool {
+    if name == "node_modules" {
+        return p.is_dir();
+    }
+    if name == "venv" || name == "virtualenv" || name == ".venv" || name == "env" {
+        return p.join("pyvenv.cfg").exists()
+            || p.join("bin").join("activate").exists()
+            || p.join("Scripts").join("activate").exists();
+    }
+    false
+}
+
+/// 动态扫描开发目录下 Python 虚拟环境与 node_modules（逐项目确认）。
+///
+/// 深度放宽到 ≤3 以覆盖 monorepo（如 `apps/web/node_modules`）；
+/// 整体受 `deadline` 限流，超时即停止，避免大 workspace 卡住扫描。
+fn scan_dev_envs(deadline: Instant) -> Vec<CleanItem> {
+    let targets = ["venv", "virtualenv", ".venv", "env", "node_modules"];
+    let mut items = Vec::new();
+    for root_name in DEV_ROOTS.iter() {
+        let root = home().join(root_name);
+        if !root.is_dir() {
+            continue;
+        }
+        scan_dev_envs_recursive(&root, &targets, &mut items, 0, 3, deadline);
+    }
+    items
+}
+
+fn scan_dev_envs_recursive(
+    dir: &Path,
+    targets: &[&str],
+    items: &mut Vec<CleanItem>,
+    depth: u32,
+    max_depth: u32,
+    deadline: Instant,
+) {
+    if depth > max_depth || Instant::now() > deadline {
+        return;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let p = entry.path();
+        let name = match p.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        if DEVENV_SKIP.contains(&name.as_str()) {
+            continue;
+        }
+        if p.is_dir() {
+            if targets.contains(&name.as_str()) && is_real_env(&p, &name) {
+                push_env_item(items, &p);
+                // 命中后不再往依赖目录内部深扫（其内容不是更多环境）
+                continue;
+            }
+            if !name.starts_with('.') {
+                scan_dev_envs_recursive(&p, targets, items, depth + 1, max_depth, deadline);
+            }
+        }
+    }
+}
+
+/// pyenv 虚拟环境：`~/.pyenv/versions/<ver>/envs/<name>`（逐项目确认，caution）。
+fn scan_pyenv_envs() -> Vec<CleanItem> {
+    let base = home().join(".pyenv").join("versions");
+    let mut items = Vec::new();
+    if !base.is_dir() {
+        return items;
+    }
+    if let Ok(versions) = fs::read_dir(&base) {
+        for v in versions.flatten() {
+            let envs = v.path().join("envs");
+            if !envs.is_dir() {
+                continue;
+            }
+            if let Ok(entries) = fs::read_dir(&envs) {
+                for e in entries.flatten() {
+                    let p = e.path();
+                    if !p.is_dir() {
+                        continue;
+                    }
+                    let name = p
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("env")
+                        .to_string();
+                    if is_real_env(&p, &name) {
+                        push_env_item(&mut items, &p);
+                    }
+                }
+            }
+        }
+    }
+    items
+}
+
+fn push_env_item(items: &mut Vec<CleanItem>, p: &Path) {
+    let size = file_or_dir_size(p);
+    let name = p
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("item")
+        .to_string();
+    items.push(CleanItem {
+        id: format!("devenv:{}", p.to_string_lossy()),
+        label: name,
+        path: p.to_string_lossy().into(),
+        category: "dev".into(),
+        category_label: "开发缓存".into(),
+        risk: CleanRisk::Caution,
+        size_bytes: size,
+        exists: p.exists(),
+    });
+}
+
 // ---------------- 汇总扫描 ----------------
 
-/// 收集所有可清理项（静态 + 自定义 + 下载过期 + 应用残留 + 用户缓存总览）。
-pub fn collect_items(extra: &[String]) -> Vec<CleanItem> {
+/// 路径是否命中持久化排除列表（精确匹配或以排除路径为父目录）。
+/// 对应 macos-system-cleaner 的 `--keep`：用户声明「永不清理」的路径不会出现在清单里。
+fn is_excluded(path: &str, exclude: &[String]) -> bool {
+    for ex in exclude {
+        if path == ex.as_str() || path.starts_with(&format!("{}/", ex)) {
+            return true;
+        }
+    }
+    false
+}
+
+/// 收集所有可清理项（静态 + 自定义 + 下载过期 + 应用残留 + 用户缓存总览 + 开发环境）。
+///
+/// - `exclude`：持久化排除列表（绝对路径），命中者不出现。
+/// - `downloads_expire_days`：下载过期判定天数。
+/// - 体积统计统一走带截止时间的近似版本（P2-10），避免大目录阻塞扫描。
+pub fn collect_items(
+    extra: &[String],
+    exclude: &[String],
+    downloads_expire_days: u32,
+) -> Vec<CleanItem> {
     let mut items = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(6);
 
     for t in STATIC_TARGETS.iter() {
         let p = expand(t.rel);
         let exists = p.exists();
-        let size = if exists { file_or_dir_size(&p) } else { 0 };
+        let size = if exists {
+            file_or_dir_size_deadline(&p, deadline)
+        } else {
+            0
+        };
         items.push(CleanItem {
             id: t.id.into(),
             label: t.label.into(),
@@ -477,7 +879,11 @@ pub fn collect_items(extra: &[String]) -> Vec<CleanItem> {
             continue;
         }
         let exists = p.exists();
-        let size = if exists { file_or_dir_size(&p) } else { 0 };
+        let size = if exists {
+            file_or_dir_size_deadline(&p, deadline)
+        } else {
+            0
+        };
         let label = p
             .file_name()
             .and_then(|n| n.to_str())
@@ -495,17 +901,25 @@ pub fn collect_items(extra: &[String]) -> Vec<CleanItem> {
         });
     }
 
-    items.extend(scan_downloads_expired(30));
+    items.extend(scan_downloads_expired(
+        downloads_expire_days as u64,
+        deadline,
+    ));
     let installed = installed_bundle_ids();
     items.extend(scan_leftovers(&installed));
     items.extend(scan_user_caches());
+    items.extend(scan_dev_envs(deadline));
+    items.extend(scan_pyenv_envs());
+
+    // 应用持久化排除列表（统一在末尾过滤，覆盖所有来源）
+    items.retain(|it| !is_excluded(&it.path, exclude));
 
     items
 }
 
 /// 预览：仅统计，不删除。
-pub fn scan(extra: &[String]) -> CleanPreview {
-    let items = collect_items(extra);
+pub fn scan(extra: &[String], exclude: &[String], downloads_expire_days: u32) -> CleanPreview {
+    let items = collect_items(extra, exclude, downloads_expire_days);
     let total_bytes: u64 = items
         .iter()
         .filter(|i| i.exists)
@@ -517,8 +931,13 @@ pub fn scan(extra: &[String]) -> CleanPreview {
 // ---------------- 清理 ----------------
 
 /// 清理指定 id 的项；先移入废纸篓，缓存类目录重建空目录。逐项目容错。
-pub fn clean(ids: &[String], extra: &[String]) -> CleanResult {
-    let items = collect_items(extra);
+pub fn clean(
+    ids: &[String],
+    extra: &[String],
+    exclude: &[String],
+    downloads_expire_days: u32,
+) -> CleanResult {
+    let items = collect_items(extra, exclude, downloads_expire_days);
     let map: HashMap<&str, &CleanItem> = items.iter().map(|i| (i.id.as_str(), i)).collect();
 
     let mut freed_bytes = 0u64;
@@ -579,15 +998,25 @@ pub fn clean(ids: &[String], extra: &[String]) -> CleanResult {
     }
 }
 
+/// 是否可被自动清理（safe 级且非 Xcode；Xcode 体积大、重建慢，排除）。
+/// 单一事实源：后端 `run_auto_clean` 与前端默认勾选共用同一判定（P2-11）。
+pub fn is_auto_cleanable(i: &CleanItem) -> bool {
+    i.risk == CleanRisk::Safe && i.category != "xcode"
+}
+
 /// 自动清理：仅清理 safe 级存在的项（Xcode/模拟器体积大、重建慢，自动清理排除）。
-pub fn run_auto_clean(extra: &[String]) -> CleanResult {
-    let items = collect_items(extra);
+pub fn run_auto_clean(
+    extra: &[String],
+    exclude: &[String],
+    downloads_expire_days: u32,
+) -> CleanResult {
+    let items = collect_items(extra, exclude, downloads_expire_days);
     let safe_ids: Vec<String> = items
         .iter()
-        .filter(|i| i.exists && i.risk == CleanRisk::Safe && i.category != "xcode")
+        .filter(|i| i.exists && is_auto_cleanable(i))
         .map(|i| i.id.clone())
         .collect();
-    clean(&safe_ids, extra)
+    clean(&safe_ids, extra, exclude, downloads_expire_days)
 }
 
 /// 将任意位于主目录内的路径移入废纸篓（供前端对大文件等做定向清理）。
@@ -609,7 +1038,7 @@ mod tests {
     /// 仅统计、不删除：确认扫描不 panic 且至少返回全部静态目标。
     #[test]
     fn scan_returns_static_items_without_panic() {
-        let p = scan(&[]);
+        let p = scan(&[], &[], 30);
         assert!(
             p.items.len() >= STATIC_TARGETS.len(),
             "应至少包含全部静态目标"
@@ -633,6 +1062,34 @@ mod tests {
     fn trash_path_rejects_missing() {
         assert!(trash_path(&home().join("switchkit-nonexistent-xyz").to_string_lossy()).is_err());
     }
+
+    /// 持久化排除列表：精确匹配与父目录前缀匹配，且不被前缀误伤。
+    #[test]
+    fn is_excluded_matches_prefix() {
+        assert!(is_excluded("/Users/x/a", &["/Users/x/a".to_string()]));
+        assert!(is_excluded("/Users/x/a/b", &["/Users/x/a".to_string()]));
+        assert!(!is_excluded("/Users/x/ab", &["/Users/x/a".to_string()]));
+        assert!(!is_excluded("/Users/x/a", &[]));
+    }
+
+    /// 自动清理规则：safe 且非 xcode 才可自动清理。
+    #[test]
+    fn auto_cleanable_rules() {
+        let mk = |risk: CleanRisk, cat: &str| CleanItem {
+            id: "x".into(),
+            label: "x".into(),
+            path: "/x".into(),
+            category: cat.into(),
+            category_label: "".into(),
+            risk,
+            size_bytes: 0,
+            exists: true,
+        };
+        assert!(is_auto_cleanable(&mk(CleanRisk::Safe, "browser")));
+        assert!(!is_auto_cleanable(&mk(CleanRisk::Safe, "xcode")));
+        assert!(!is_auto_cleanable(&mk(CleanRisk::Caution, "app")));
+        assert!(!is_auto_cleanable(&mk(CleanRisk::Danger, "ios")));
+    }
 }
 
 /// 定时器入口：按设置判断是否到期，到期则自动清理 safe 项并记录时间戳。
@@ -646,7 +1103,11 @@ pub fn run_auto_clean_if_due(app: &tauri::AppHandle) {
     if s.last_auto_clean_ts > 0 && (now - s.last_auto_clean_ts) < interval {
         return;
     }
-    let r = run_auto_clean(&s.cache_whitelist_extra);
+    let r = run_auto_clean(
+        &s.cache_whitelist_extra,
+        &s.exclude_paths,
+        s.downloads_expire_days,
+    );
     s.last_auto_clean_ts = now;
     let _ = crate::store::save_settings(app, &s);
     if r.cleaned_count > 0 {
@@ -661,7 +1122,11 @@ pub fn run_auto_clean_if_due(app: &tauri::AppHandle) {
 
 // ---------------- 分析：空间占用排行 ----------------
 
-/// 按占用者（目录名）聚合 `~/Library` 下各缓存/容器体积，返回 Top N。
+/// 按占用者（目录名）聚合 `~/Library` 与 home 一级隐藏目录的体积，返回 Top N。
+///
+/// 覆盖范围扩展（P1-6）：除 `~/Library` 下四类外，新增 home 一级以 `.` 开头的
+/// 隐藏目录（如 `.cache`/`.ollama`/`.cargo`/`.npm`），这些常是数十 GB 的模型 /
+/// 依赖缓存，却不在 `~/Library` 内、原排行看不到。跳过 `.Trash` 避免自循环。
 pub fn bundle_usage() -> Vec<BundleUsage> {
     let lib = home().join("Library");
     let roots = vec![
@@ -670,12 +1135,32 @@ pub fn bundle_usage() -> Vec<BundleUsage> {
         lib.join("Containers"),
         lib.join("Group Containers"),
     ];
+    let deadline = Instant::now() + Duration::from_secs(4);
     let mut out = Vec::new();
     for root in roots {
         if !root.is_dir() {
             continue;
         }
         if let Ok(entries) = fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if !p.is_dir() {
+                    continue;
+                }
+                let name = match p.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                out.push(BundleUsage {
+                    name,
+                    path: p.to_string_lossy().to_string(),
+                    size_bytes: dir_size_deadline(&p, deadline),
+                });
+            }
+        }
+    }
+    // home 一级隐藏目录（巨型缓存常驻此处）
+    if let Ok(entries) = fs::read_dir(home()) {
         for entry in entries.flatten() {
             let p = entry.path();
             if !p.is_dir() {
@@ -685,12 +1170,14 @@ pub fn bundle_usage() -> Vec<BundleUsage> {
                 Some(n) => n.to_string(),
                 None => continue,
             };
+            if !name.starts_with('.') || name == ".Trash" {
+                continue;
+            }
             out.push(BundleUsage {
                 name,
                 path: p.to_string_lossy().to_string(),
-                size_bytes: dir_size(&p),
+                size_bytes: dir_size_deadline(&p, deadline),
             });
-        }
         }
     }
     out.sort_by(|a, b| b.size_bytes.cmp(&a.size_bytes));
@@ -753,7 +1240,8 @@ fn walk_large(
             if n.starts_with('.') {
                 continue;
             }
-            if n == "node_modules" || n == ".git" || n == "Library" {
+            if n == "node_modules" || n == ".git" || n == "Library"
+                || n == "Mobile Documents" {
                 continue;
             }
         }
@@ -761,6 +1249,13 @@ fn walk_large(
             if meta.is_dir() {
                 walk_large(&p, threshold, found, count, start, depth + 1);
             } else if meta.len() >= threshold {
+                // iCloud 占位文件（以 .icloud 结尾）：打开读取会触发云端下载，
+                // 既产生不必要流量，也可能误下载大文件，直接跳过。
+                if let Some(name) = p.file_name().and_then(|nm| nm.to_str()) {
+                    if name.ends_with(".icloud") {
+                        continue;
+                    }
+                }
                 let h = sample_hash(&p);
                 found.push((p, meta.len(), h));
             }

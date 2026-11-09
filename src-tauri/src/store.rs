@@ -21,6 +21,8 @@ const KNOWN_SETTINGS_KEYS: &[&str] = &[
     "auto_clean_enabled",
     "auto_clean_interval_days",
     "last_auto_clean_ts",
+    "exclude_paths",
+    "downloads_expire_days",
 ];
 
 /// 容错读取配置。
@@ -69,6 +71,12 @@ pub fn settings_from_value(raw: &serde_json::Value) -> Option<Settings> {
         &mut s.auto_clean_interval_days,
     );
     extract(&obj, "last_auto_clean_ts", &mut s.last_auto_clean_ts);
+    extract(&obj, "exclude_paths", &mut s.exclude_paths);
+    extract(&obj, "downloads_expire_days", &mut s.downloads_expire_days);
+    // 0 天无意义（会清空整个 Downloads），兜底为默认 30
+    if s.downloads_expire_days == 0 {
+        s.downloads_expire_days = 30;
+    }
     Some(s)
 }
 

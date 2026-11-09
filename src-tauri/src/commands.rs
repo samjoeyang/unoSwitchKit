@@ -428,13 +428,18 @@ pub async fn flush_dns() -> Result<(), String> {
 #[tauri::command]
 pub async fn scan_cleanup(app: AppHandle) -> CleanPreview {
     let s = crate::store::load_settings(&app);
-    crate::cleanup::scan(&s.cache_whitelist_extra)
+    crate::cleanup::scan(&s.cache_whitelist_extra, &s.exclude_paths, s.downloads_expire_days)
 }
 
 #[tauri::command]
 pub async fn clean_selected(app: AppHandle, ids: Vec<String>) -> CleanResult {
     let s = crate::store::load_settings(&app);
-    crate::cleanup::clean(&ids, &s.cache_whitelist_extra)
+    crate::cleanup::clean(
+        &ids,
+        &s.cache_whitelist_extra,
+        &s.exclude_paths,
+        s.downloads_expire_days,
+    )
 }
 
 #[tauri::command]
@@ -457,6 +462,24 @@ pub async fn large_files(threshold_mb: u64) -> Vec<LargeFile> {
 #[tauri::command]
 pub async fn trash_path(path: String) -> Result<String, String> {
     crate::cleanup::trash_path(&path)
+}
+
+/// 列出本应用移入废纸篓的项（回收站面板）。
+#[tauri::command]
+pub async fn list_trash_items() -> Vec<TrashItem> {
+    crate::cleanup::list_trash_items()
+}
+
+/// 从废纸篓恢复某项回原路径（覆盖前校验原路径不存在）。
+#[tauri::command]
+pub async fn restore_trash_item(trashed_path: String) -> Result<(), String> {
+    crate::cleanup::restore_trash_item(&trashed_path)
+}
+
+/// 清空本应用移入废纸篓的所有项（仅删 `switchkit-` 前缀，不动系统其它废纸篓文件）。
+#[tauri::command]
+pub async fn empty_switchkit_trash() -> u32 {
+    crate::cleanup::empty_switchkit_trash()
 }
 
 /// 查询所有已配置 Key 的余额（无 Key 时返回空列表）。

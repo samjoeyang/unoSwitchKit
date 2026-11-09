@@ -67,6 +67,20 @@ export interface LargeFile {
   duplicate: boolean;
 }
 
+/// 废纸篓中由本应用移入的项（回收站面板用）
+export interface TrashItem {
+  id: string;
+  /// 原目录 / 文件名
+  name: string;
+  /// 原路径（恢复目标）
+  original_path: string;
+  /// 移入后路径（废纸篓内）
+  trashed_path: string;
+  size_bytes: number;
+  /// 移入时间戳（秒）
+  moved_at: number;
+}
+
 export interface ProviderKey {
   id: string;
   /// deepseek / kimi / kimi_intl / zhipu / stepfun / novita /
@@ -109,6 +123,10 @@ export interface Settings {
   auto_clean_interval_days: number;
   /// 上次自动清理时间戳（秒），0 表示从未
   last_auto_clean_ts: number;
+  /// 持久化排除列表（绝对路径），这些路径永不出现在清理清单中
+  exclude_paths: string[];
+  /// 下载目录过期文件判定天数（修改时间早于该天数视为可清理），默认 30
+  downloads_expire_days: number;
 }
 
 export interface SidecarStatus {

@@ -37,6 +37,10 @@ export const api = {
   largeFiles: (thresholdMb: number) =>
     invoke<LargeFile[]>("large_files", { thresholdMb }),
   trashPath: (path: string) => invoke<string>("trash_path", { path }),
+  listTrashItems: () => invoke<TrashItem[]>("list_trash_items"),
+  restoreTrashItem: (trashedPath: string) =>
+    invoke<void>("restore_trash_item", { trashed_path: trashedPath }),
+  emptySwitchkitTrash: () => invoke<number>("empty_switchkit_trash"),
   getBalances: () => invoke<AccountBalance[]>("get_balances"),
   getMemoryStats: () => invoke<MemoryStat>("get_memory_stats"),
   getSettings: () => invoke<Settings>("get_settings"),
