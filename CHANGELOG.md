@@ -2,6 +2,31 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.4.9] - 2026-11-09
+
+### 优化：清理功能 12 项增强（安全 / 覆盖 / 体验）
+
+- **P0 安全与正确性**
+  - 修正结果「释放」措辞：清理只是先移入 `~/.Trash`，并未真正释放空间。结果卡改为「已转移 X 至废纸篓」，并新增「清空本应用移入的废纸篓项」按钮。
+  - 大文件扫描（`walk_large`）跳过 `Mobile Documents` 目录与 `.icloud` 占位文件，避免递归 `Documents/Desktop` 时触发 iCloud 云端下载（流量 + 误下载）。
+  - 二次确认文案按所选最高风险动态变化：含「危险」项（iOS 备份 / 应用残留）或「谨慎」项（App 缓存等）时分别给出醒目警告。
+- **P1 覆盖与精度**
+  - 补全虚拟环境扫描：新增 `~/.conda/envs` 静态项 + `scan_pyenv_envs()` 动态扫 `~/.pyenv/versions/*/envs/*`。
+  - `scan_dev_envs` 深度由 ≤2 放宽至 ≤3 并加 deadline 限流，覆盖 `apps/web/node_modules` 这类 monorepo，且不再卡扫描。
+  - `bundle_usage` 占用排行纳入 home 一级隐藏目录（`.cache`/`.ollama`/`.cargo`/`.npm` 等数十 GB 模型与依赖缓存），并跳过 `.Trash` 防自循环。
+  - 下载过期天数可配置（`downloads_expire_days`，定时页可设，默认 30）；`scan_downloads_expired` 递归子目录、仅列文件防父子重复计数。
+- **P2 体验与工程**
+  - 持久化排除列表 `settings.exclude_paths`（对应 `--keep`）：清理项新增「⊘」一键排除，下次扫描不再出现。
+  - 回收站管理：每次清理写 `~/.Trash/switchkit-manifest.json`，新增「回收站」标签页，支持一键恢复回原路径与清空本应用移入项。
+  - 体积统计超时近似 `dir_size_deadline`：大目录超时即返回近似，避免扫描卡顿。
+  - 抽出 `is_auto_cleanable` 单一判定，后端自动清理与前端默认勾选共用，消除两处逻辑漂移。
+  - `recreate_after_clean` 排除 dev 类，venv/node_modules 移走后不再重建无意义空目录。
+
+### 工程
+
+- `cargo test cleanup` 5 passed（含新增 `is_excluded` / `is_auto_cleanable` 单测）。
+- `docs/cleanup-manifest.md` 同步更新（pyenv/conda-base 标 🆕、node_modules 深度改 3、iCloud 防护、第二轮增强章节）。
+
 ## [0.4.8] - 2026-11-09
 
 ### 扩展：清理纳入 `~/Library/Caches` 全量用户缓存
