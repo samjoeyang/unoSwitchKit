@@ -238,7 +238,7 @@ jobs:
           name: v${{ steps.notes.outputs.version }}
           body_path: release_notes.md
           make_latest: true
-          overwrite: true
+          overwrite_files: true
           files: release/*
 
       - name: 列出产物
