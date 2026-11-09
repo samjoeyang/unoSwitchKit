@@ -2,7 +2,23 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
-## [0.4.7] - 2026-11-04（未发布）
+## [0.4.8] - 2026-11-09
+
+### 扩展：清理纳入 `~/Library/Caches` 全量用户缓存
+
+- 背景：原静态白名单仅覆盖少量逐项列出的缓存目录（Safari/Chrome/dyld…），`~/Library/Caches` 下绝大多数缓存（Homebrew、VSCode ShipIt、iCloud、clang、Google 等，总量可达数 GB）从未被本功能收录，只能借助第三方清理工具处理。
+- 改动：`cleanup.rs` 新增 `scan_user_caches()`，动态枚举 `~/Library/Caches` 顶层项并作为「用户缓存」分类呈现（与 CleanMyMac 的「用户缓存文件」类别一致）。
+  - 风险定为 `Caution`：缓存可重建，但内容混杂含部分 App 缓存，故仅呈现、需手动勾选、绝不自动清理，也不会被默认勾选（与「安全」级静态缓存区分）。
+  - 去重：跳过已在静态白名单逐项列出的缓存末段名，及本应用自身缓存 `com.switchkit.app`，避免重复/自清理。
+  - 过滤：仅展示 ≥ 1MB 的顶层项以减少零碎噪音，按体积降序。
+  - `CleanupPanel.tsx` 的 `CATEGORY_ORDER` 新增 `syscache`（位于「系统缓存」之后）；`models.rs` 分类注释同步补充。
+- 效果：清理面板可直接勾选并清理 `~/Library/Caches` 下任意用户缓存（仍先移入废纸篓、可恢复），不再依赖外部工具。
+
+### 修复：清理列表长标签换行
+
+- `CleanupPanel.tsx` 清理项标签过长时换行导致右侧文件大小被遮盖；改为标签列 `min-w-0 break-all` 允许内部换行、风险徽章 `shrink-0` 不被挤压、大小列 `self-start` 顶部对齐，长标签不再遮挡「大小」。
+
+## [0.4.7] - 2026-11-04
 
 ### 修复：清理执行无反馈（不知道是否成功）
 
@@ -51,16 +67,6 @@
 - `src/ipc.ts` / `src/types.ts` / `src/App.tsx`：对接新 API 与类型，主面板渲染顺序调整为 开关 → 资源 → 清理 → 蓝牙 → 余额。
 
 **效果**：清理能力从「8 个固定目录全清」扩展为「可勾选、分级、可回收、可分析、可定时」的完整无用文件治理体系，且全程不越权、可恢复。
-
-### 扩展：清理纳入 `~/Library/Caches` 全量用户缓存
-
-- 背景：原静态白名单仅覆盖少量逐项列出的缓存目录（Safari/Chrome/dyld…），`~/Library/Caches` 下绝大多数缓存（Homebrew、VSCode ShipIt、iCloud、clang、Google 等，总量可达数 GB）从未被本功能收录，只能借助第三方清理工具处理。
-- 改动：`cleanup.rs` 新增 `scan_user_caches()`，动态枚举 `~/Library/Caches` 顶层项并作为「用户缓存」分类呈现（与 CleanMyMac 的「用户缓存文件」类别一致）。
-  - 风险定为 `Caution`：缓存可重建，但内容混杂含部分 App 缓存，故仅呈现、需手动勾选、绝不自动清理，也不会被默认勾选（与「安全」级静态缓存区分）。
-  - 去重：跳过已在静态白名单逐项列出的缓存末段名，及本应用自身缓存 `com.switchkit.app`，避免重复/自清理。
-  - 过滤：仅展示 ≥ 1MB 的顶层项以减少零碎噪音，按体积降序。
-  - `CleanupPanel.tsx` 的 `CATEGORY_ORDER` 新增 `syscache`（位于「系统缓存」之后）；`models.rs` 分类注释同步补充。
-- 效果：清理面板可直接勾选并清理 `~/Library/Caches` 下任意用户缓存（仍先移入废纸篓、可恢复），不再依赖外部工具。
 
 ## [0.4.6] - 2026-11-03
 
