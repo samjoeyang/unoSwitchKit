@@ -11,6 +11,7 @@ import type {
   Settings,
   SidecarStatus,
   ToggleStates,
+  TrashItem,
   UpdateConfig,
 } from "./types";
 
