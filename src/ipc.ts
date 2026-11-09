@@ -9,6 +9,7 @@ import type {
   MemoryComparison,
   MemoryStat,
   Settings,
+  SystemStats,
   SidecarStatus,
   ToggleStates,
   TrashItem,
@@ -44,6 +45,7 @@ export const api = {
   emptySwitchkitTrash: () => invoke<number>("empty_switchkit_trash"),
   getBalances: () => invoke<AccountBalance[]>("get_balances"),
   getMemoryStats: () => invoke<MemoryStat>("get_memory_stats"),
+  getSystemStats: () => invoke<SystemStats>("get_system_stats"),
   getSettings: () => invoke<Settings>("get_settings"),
   saveSettings: (s: Settings) => invoke<void>("save_settings", { settings: s }),
   setLaunchAtLogin: (enabled: boolean) =>

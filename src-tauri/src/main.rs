@@ -3,6 +3,7 @@
 mod balance;
 mod cleanup;
 mod commands;
+mod sysmon;
 mod models;
 mod privilege;
 mod store;
@@ -79,11 +80,13 @@ fn is_process_alive(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
-/// 全局可变状态：prevent-sleep 的 caffeinate 子进程句柄 + 屏幕清洁状态。
+/// 全局可变状态：prevent-sleep 的 caffeinate 子进程句柄 + 屏幕清洁状态 + 系统监控。
 pub struct AppState {
     pub caffeinate: Mutex<Option<Child>>,
     /// 屏幕清洁是否处于「已收起全部前台窗口」状态（本应用维护）。
     pub screen_cleaned: Mutex<bool>,
+    /// 系统实时监控（CPU/内存/网络），跨命令调用保留同一 sysinfo 实例。
+    pub sysmon: Mutex<crate::sysmon::SystemMonitor>,
 }
 
 /// 清掉占用 9876 端口的进程（best-effort）。用于两处：
@@ -381,11 +384,13 @@ fn main() {
             app.manage(AppState {
                 caffeinate: Mutex::new(None),
                 screen_cleaned: Mutex::new(false),
+                sysmon: Mutex::new(crate::sysmon::SystemMonitor::new()),
             });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_toggle_states,
+            commands::get_system_stats,
             commands::toggle_dark_mode,
             commands::toggle_hide_desktop,
             commands::toggle_prevent_sleep,

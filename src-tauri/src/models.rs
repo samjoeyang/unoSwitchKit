@@ -35,6 +35,21 @@ pub struct MemoryComparison {
     pub after: MemoryStat,
 }
 
+/// 系统实时监控快照（CPU / 内存 / 网络上下行速率）。
+#[derive(Serialize, Deserialize, Clone)]
+pub struct SystemStats {
+    /// CPU 总使用率（0..100）。
+    pub cpu_percent: f32,
+    /// 已用内存字节数。
+    pub mem_used_bytes: u64,
+    /// 总内存字节数。
+    pub mem_total_bytes: u64,
+    /// 网络上行速率（字节/秒）。
+    pub net_up_bps: u64,
+    /// 网络下行速率（字节/秒）。
+    pub net_down_bps: u64,
+}
+
 /// 清理项的风险等级（决定能否被自动清理 / 是否需要警告）。
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]

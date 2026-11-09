@@ -420,6 +420,15 @@ pub async fn release_memory() -> Result<MemoryComparison, String> {
 }
 
 #[tauri::command]
+pub async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats, String> {
+    let mut mon = state
+        .sysmon
+        .lock()
+        .map_err(|_| "锁系统监控状态失败".to_string())?;
+    Ok(mon.sample())
+}
+
+#[tauri::command]
 pub async fn flush_dns() -> Result<(), String> {
     crate::privilege::run_as_root("dscacheutil -flushcache; killall -HUP mDNSResponder")?;
     Ok(())

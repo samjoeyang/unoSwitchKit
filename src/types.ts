@@ -22,6 +22,14 @@ export interface MemoryComparison {
   after: MemoryStat;
 }
 
+export interface SystemStats {
+  cpu_percent: number;
+  mem_used_bytes: number;
+  mem_total_bytes: number;
+  net_up_bps: number;
+  net_down_bps: number;
+}
+
 export type CleanRisk = "safe" | "caution" | "danger";
 
 export interface CleanItem {
