@@ -164,26 +164,54 @@ jobs:
             echo "-> SwitchKit-${VERSION}-${arch}.zip ($(lipo -archs "$APP/Contents/MacOS/unoswitchkit" 2>/dev/null || echo '?'))"
           done
 
-      # 启用 OTA 时：生成 latest.json 并发布到 GitHub Release
-      - name: 生成 latest.json 并发布 GitHub Release
-        id: gen_ota
-        if: env.OTA_ENABLED == 'true'
+      # 提取本版本变更详情（CHANGELOG 对应版本段），供 Release 正文与 OTA manifest 复用
+      - name: 提取变更详情
+        id: notes
         run: |
           set -euo pipefail
           VERSION="$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])')"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          python3 - "$VERSION" "${{ github.sha }}" "${{ github.ref }}" <<'PY'
+          import re, sys
+          ver, sha, ref = sys.argv[1], sys.argv[2], sys.argv[3]
+          text = open("CHANGELOG.md").read()
+          m = re.search(r'##\s*\[' + re.escape(ver) + r'\].*?(?=\n##\s|\Z)', text, re.S)
+          notes = (m.group(0).strip() if m else f"SwitchKit {ver}").replace('\r', '')
+          with open("release_notes.md", "w") as f:
+              f.write(notes + "\n")
+              if "${{ env.OTA_ENABLED }}" == "true":
+                  f.write("\n---\n已启用在线更新：应用内「检查更新」将拉取本 Release 的 latest.json。\n")
+              f.write(f"\n---\n构建信息：commit `{sha[:7]}` · ref `{ref}`\n")
+          print("已提取变更详情（v%s），长度 %d" % (ver, len(notes)))
+          PY
+
+      # 始终拷贝三架构分发 zip 到统一发布目录（无论是否启用 OTA 都发布 Release）
+      - name: 准备发布目录（三架构 zip）
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.notes.outputs.version }}"
+          mkdir -p release
+          cp "src-tauri/target/universal-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-universal.zip" release/
+          cp "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-x86_64.zip" release/
+          cp "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-aarch64.zip" release/
+          echo "发布目录："; ls -lh release
+
+      # 启用 OTA 时：生成 latest.json 及带签名的更新产物，放入发布目录
+      - name: 生成 latest.json（仅 OTA 启用时）
+        id: gen_ota
+        if: env.OTA_ENABLED == 'true'
+        run: |
+          set -euo pipefail
+          VERSION="${{ steps.notes.outputs.version }}"
           PUB_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           BASE="https://github.com/${{ github.repository }}/releases/download/v$VERSION"
-          mkdir -p ota
+          mkdir -p release
           # 读取每个架构的 .sig 内容、整理成 Tauri v2 静态 manifest，并准备好发布资产
           python3 - "$VERSION" "$PUB_DATE" "$BASE" <<'PY'
           import json, os, re, shutil, sys
           ver, pub_date, base = sys.argv[1], sys.argv[2], sys.argv[3]
           triple = {"x86_64": "x86_64-apple-darwin", "aarch64": "aarch64-apple-darwin"}
-          notes_text = open("CHANGELOG.md").read()
-          m = re.search(r'##\s*\[' + re.escape(ver) + r'\].*?(?=\n##\s|\Z)', notes_text, re.S)
-          notes = (m.group(0).strip() if m else f"SwitchKit {ver}").replace('\r', '')
-          staging = "ota"
+          staging = "release"
           platforms = {}
           for arch, t in triple.items():
               gz = f"src-tauri/target/{t}/release/bundle/macos/SwitchKit.app.tar.gz"
@@ -195,31 +223,23 @@ jobs:
               shutil.copy(gz, os.path.join(staging, asset))
               shutil.copy(sig, os.path.join(staging, asset + ".sig"))
               platforms[f"darwin-{arch}"] = {"signature": sig_content, "url": f"{base}/{asset}"}
-          manifest = {"version": ver, "notes": notes, "pub_date": pub_date, "platforms": platforms}
+          manifest = {"version": ver, "notes": open("release_notes.md").read(), "pub_date": pub_date, "platforms": platforms}
           with open(os.path.join(staging, "latest.json"), "w") as f:
               json.dump(manifest, f, indent=2, ensure_ascii=False)
           print("latest.json 已生成，平台：", list(platforms.keys()))
           PY
-          # 手动分发的三个 zip 也一并放进发布目录。
-          # 改用「当前版本 + 精确架构名」拷贝，不再用 SwitchKit-*.zip 通配——
-          # 通配会把缓存里残留的旧版本包一并扫进来（即本次 0.4.5 混入 0.4.1~0.4.3 的根因）。
-          cp "src-tauri/target/universal-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-universal.zip" ota/
-          cp "src-tauri/target/x86_64-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-x86_64.zip" ota/
-          cp "src-tauri/target/aarch64-apple-darwin/release/bundle/macos/SwitchKit-${VERSION}-aarch64.zip" ota/
-          echo "OTA 发布目录："; ls -lh ota
+          echo "发布目录（含 OTA）："; ls -lh release
 
+      # 发布到 GitHub Release：始终创建（不再依赖 OTA），正文为 CHANGELOG 对应版本段（变更详情）
       - name: 发布到 GitHub Release
-        if: env.OTA_ENABLED == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.gen_ota.outputs.version }}
-          name: v${{ steps.gen_ota.outputs.version }}
-          body: |
-            SwitchKit v${{ steps.gen_ota.outputs.version }} 自动构建（Intel / Apple Silicon / Universal）。
-            已启用在线更新：应用内「检查更新」将拉取本 Release 的 latest.json。
+          tag_name: v${{ steps.notes.outputs.version }}
+          name: v${{ steps.notes.outputs.version }}
+          body_path: release_notes.md
           make_latest: true
           overwrite: true
-          files: ota/*
+          files: release/*
 
       - name: 列出产物
         run: ls -lh src-tauri/target/*/release/bundle/macos/SwitchKit-*.zip
