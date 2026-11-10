@@ -117,44 +117,152 @@ fn parse_pages(s: &str) -> u64 {
     s.trim().trim_end_matches('.').trim().parse::<u64>().unwrap_or(0)
 }
 
-fn parse_memory() -> Result<MemoryStat, String> {
-    let page_size: u64 = 4096;
-    let vm = util::run("vm_stat", &[])?;
-    let mut free = 0u64;
-    let mut active = 0u64;
-    let mut inactive = 0u64;
-    let mut speculative = 0u64;
-    let mut wired = 0u64;
-    let mut compressed = 0u64;
+/// vm_stat 首行形如 `Mach Virtual Memory Statistics: (page size of 16384 bytes)`。
+/// Apple Silicon 为 16384，Intel 为 4096；硬编码 4096 会让 aarch64 上的内存
+/// 数字只有真实值的 1/4，必须按输出里的实际页大小换算。
+fn parse_page_size(vm: &str) -> Option<u64> {
+    let (_, rest) = vm.lines().next()?.split_once("page size of")?;
+    let digits: String = rest
+        .trim_start()
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse::<u64>().ok().filter(|n| *n > 0)
+}
+
+/// vm_stat 首行格式变化时的兜底：直接问内核页大小。
+fn system_page_size() -> u64 {
+    util::run("sysctl", &["-n", "hw.pagesize"])
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(4096)
+}
+
+#[derive(Default)]
+struct VmPages {
+    free: u64,
+    active: u64,
+    inactive: u64,
+    speculative: u64,
+    wired: u64,
+    compressed: u64,
+}
+
+fn parse_vm_pages(vm: &str) -> VmPages {
+    let mut p = VmPages::default();
     for line in vm.lines() {
         let v = line.split_once(':').map(|(_, r)| r).unwrap_or("");
         if line.starts_with("Pages free") {
-            free = parse_pages(v);
+            p.free = parse_pages(v);
         } else if line.starts_with("Pages active") {
-            active = parse_pages(v);
+            p.active = parse_pages(v);
         } else if line.starts_with("Pages inactive") {
-            inactive = parse_pages(v);
+            p.inactive = parse_pages(v);
         } else if line.starts_with("Pages speculative") {
-            speculative = parse_pages(v);
+            p.speculative = parse_pages(v);
         } else if line.starts_with("Pages wired down") {
-            wired = parse_pages(v);
+            p.wired = parse_pages(v);
         } else if line.starts_with("Pages occupied by compressor") {
-            compressed = parse_pages(v);
+            p.compressed = parse_pages(v);
         }
     }
+    p
+}
+
+/// 与资源面板 `sysinfo::System::used_memory()` 保持同一口径：
+/// `used = active + wired + compressor + speculative`（活动监视器的「已用」），
+/// **不含** inactive 可回收缓存。inactive 单独放进 `cached_mb`，用来衡量
+/// `purge` 到底回收了多少缓存。两处口径不一致会让同一时刻出现
+/// 「面板 8.9 GB / 日志 12.56 GB」这类相差数 GB 的数字。
+fn memory_stat(p: &VmPages, page_size: u64, total_bytes: u64) -> MemoryStat {
+    let mb = |pages: u64| pages.saturating_mul(page_size) / 1_048_576;
+    MemoryStat {
+        // free_count 已包含 speculative，不再重复相加
+        free_mb: mb(p.free),
+        used_mb: mb(p.active + p.wired + p.compressed + p.speculative),
+        total_mb: total_bytes / 1_048_576,
+        compressed_mb: mb(p.compressed),
+        cached_mb: mb(p.inactive),
+    }
+}
+
+fn parse_memory() -> Result<MemoryStat, String> {
+    let vm = util::run("vm_stat", &[])?;
+    let page_size = parse_page_size(&vm).unwrap_or_else(system_page_size);
     let total_out = util::run("sysctl", &["-n", "hw.memsize"])?;
     let total_bytes: u64 = total_out
         .trim()
         .parse()
         .map_err(|_| "解析总内存失败".to_string())?;
-    let free_mb = (free + speculative) * page_size / 1_048_576;
-    let used_mb = (active + inactive + wired + compressed) * page_size / 1_048_576;
-    Ok(MemoryStat {
-        free_mb,
-        used_mb,
-        total_mb: total_bytes / 1_048_576,
-        compressed_mb: compressed * page_size / 1_048_576,
-    })
+    Ok(memory_stat(&parse_vm_pages(&vm), page_size, total_bytes))
+}
+
+#[cfg(test)]
+mod memory_tests {
+    use super::*;
+
+    const INTEL: &str = "Mach Virtual Memory Statistics: (page size of 4096 bytes)\n\
+Pages free: 4993.\n\
+Pages active: 1602108.\n\
+Pages inactive: 1393753.\n\
+Pages speculative: 208894.\n\
+Pages wired down: 765716.\n\
+Pages occupied by compressor: 218347.\n";
+
+    const ARM: &str = "Mach Virtual Memory Statistics: (page size of 16384 bytes)\n\
+Pages free: 1000.\n\
+Pages active: 100000.\n\
+Pages inactive: 200000.\n\
+Pages speculative: 10000.\n\
+Pages wired down: 50000.\n\
+Pages occupied by compressor: 20000.\n";
+
+    #[test]
+    fn page_size_is_read_from_vm_stat() {
+        assert_eq!(parse_page_size(INTEL), Some(4096));
+        assert_eq!(parse_page_size(ARM), Some(16384));
+        assert_eq!(parse_page_size("no header here"), None);
+    }
+
+    #[test]
+    fn arm_page_size_is_not_undercounted() {
+        let p = parse_vm_pages(ARM);
+        let s = memory_stat(&p, 16384, 16 * 1_073_741_824);
+        // 旧实现按 4096 换算只有这里的 1/4
+        assert_eq!(s.cached_mb, 200000 * 16384 / 1_048_576);
+        assert_eq!(s.total_mb, 16384);
+    }
+
+    /// 回归护栏：本机实测两者只差十余 MB。若页大小再次被硬编码成 4096
+    /// （Apple Silicon 上是 16384），或 `used_mb` 又把 inactive 算进去，
+    /// 这个差值会立刻放大到数 GB。
+    #[test]
+    fn live_used_matches_sysinfo() {
+        let mut sys = sysinfo::System::new_all();
+        sys.refresh_memory();
+        let s = parse_memory().unwrap();
+        let sysinfo_mb = sys.used_memory() / 1_048_576;
+        let diff = sysinfo_mb.abs_diff(s.used_mb);
+        assert!(
+            diff < 1024,
+            "两套统计口径应一致，实际相差 {} MB（sysinfo {} MB / vm_stat {} MB）",
+            diff,
+            sysinfo_mb,
+            s.used_mb
+        );
+    }
+
+    #[test]
+    fn used_excludes_inactive_but_keeps_speculative() {
+        let p = parse_vm_pages(INTEL);
+        assert_eq!(p.inactive, 1_393_753);
+        assert_eq!(p.speculative, 208_894);
+        let s = memory_stat(&p, 4096, 16 * 1_073_741_824);
+        assert_eq!(s.used_mb, (1_602_108 + 765_716 + 218_347 + 208_894) * 4096 / 1_048_576);
+        assert_eq!(s.cached_mb, 1_393_753 * 4096 / 1_048_576);
+        assert_eq!(s.free_mb, 4993 * 4096 / 1_048_576);
+    }
 }
 
 // ---------------- 命令 ----------------

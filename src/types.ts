@@ -15,6 +15,8 @@ export interface MemoryStat {
   free_mb: number;
   total_mb: number;
   compressed_mb: number;
+  /** inactive 可回收缓存，purge 释放的主要是这部分 */
+  cached_mb: number;
 }
 
 export interface MemoryComparison {

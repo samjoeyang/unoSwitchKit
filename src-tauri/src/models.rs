@@ -20,12 +20,17 @@ pub struct ToggleStates {
 }
 
 /// 内存占用快照（来自 vm_stat / sysctl）。
+///
+/// `used_mb` 与资源面板的 `sysinfo::System::used_memory()` 同口径：
+/// active + wired + compressor + speculative，**不含** inactive 可回收缓存。
 #[derive(Serialize, Deserialize, Clone, Copy)]
 pub struct MemoryStat {
     pub used_mb: u64,
     pub free_mb: u64,
     pub total_mb: u64,
     pub compressed_mb: u64,
+    /// inactive 页数换算的容量，`purge` 释放的主要就是这部分。
+    pub cached_mb: u64,
 }
 
 /// 释放内存前后对比。

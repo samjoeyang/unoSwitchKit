@@ -2,6 +2,16 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [未发布]
+
+### 修复：内存数字口径与页大小
+
+- 「释放内存」的 before/after 改用与资源面板一致的 sysinfo 口径（active + wired + compressor + speculative，**不含** inactive 可回收缓存）。同一时刻不再出现「面板 8.9 GB / 日志 12.56 GB」这类相差数 GB 的数字。
+- 释放结果改显示「回收缓存 X GB」+「已用（不含缓存）before → after」；`MemoryStat` 新增 `cached_mb` 记录 inactive 页数，便于衡量 `purge` 的实际效果。
+- `parse_memory()` 不再硬编码 4096 页大小，改从 `vm_stat` 首行读取（Apple Silicon 16384 / Intel 4096），并以 `sysctl -n hw.pagesize` 兜底。修复 aarch64 构建上释放日志数字只有真实值 1/4 的问题。
+- `free_mb` 不再重复累加 speculative（`free_count` 已包含它）。
+- 新增 vm_stat 解析、页大小换算与口径一致性的 Rust 单元测试。
+
 ## [0.4.11] - 2026-11-09
 
 ### 优化：资源面板布局与快捷开关归位

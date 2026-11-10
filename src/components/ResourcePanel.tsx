@@ -91,7 +91,10 @@ export function ResourcePanel() {
     setMsg("");
     try {
       const r = await api.releaseMemory();
-      setMsg(`内存已释放：使用 ${fmtMB(r.before.used_mb)} → ${fmtMB(r.after.used_mb)}`);
+      const freedCacheMb = Math.max(0, r.before.cached_mb - r.after.cached_mb);
+      setMsg(
+        `内存已释放：回收缓存 ${fmtMB(freedCacheMb)}；已用（不含缓存）${fmtMB(r.before.used_mb)} → ${fmtMB(r.after.used_mb)}`,
+      );
     } catch (e) {
       setMsg(`释放失败：${e}`);
     } finally {
