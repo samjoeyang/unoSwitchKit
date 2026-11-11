@@ -1,6 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   AccountBalance,
+  AppearanceMode,
+  ShortcutReport,
   BtDevice,
   BundleUsage,
   CleanPreview,
@@ -8,6 +10,7 @@ import type {
   LargeFile,
   MemoryComparison,
   MemoryStat,
+  PermissionState,
   Settings,
   SystemStats,
   SidecarStatus,
@@ -18,6 +21,13 @@ import type {
 
 export const api = {
   getToggleStates: () => invoke<ToggleStates>("get_toggle_states"),
+  getAppearanceMode: () => invoke<AppearanceMode>("get_appearance_mode"),
+  setAppearanceMode: (mode: AppearanceMode) =>
+    invoke<AppearanceMode>("set_appearance_mode", { mode }),
+  cycleAppearanceMode: () => invoke<AppearanceMode>("cycle_appearance_mode"),
+  openSystemScreenshot: () => invoke<void>("open_system_screenshot"),
+  setShortcutBindings: (bindings: Record<string, string>) =>
+    invoke<ShortcutReport[]>("set_shortcut_bindings", { bindings }),
   toggleDarkMode: () => invoke<boolean>("toggle_dark_mode"),
   toggleHideDesktop: () => invoke<boolean>("toggle_hide_desktop"),
   togglePreventSleep: () => invoke<boolean>("toggle_prevent_sleep"),
@@ -57,4 +67,10 @@ export const api = {
   btDisconnect: (address: string) => invoke<boolean>("bt_disconnect", { address }),
   quitApp: () => invoke<void>("quit_app"),
   getUpdateConfig: () => invoke<UpdateConfig>("get_update_config"),
+  getPermissionState: () => invoke<PermissionState>("get_permission_state"),
+  refreshPermissions: () => invoke<PermissionState>("refresh_permissions"),
+  acknowledgePermissionChange: () =>
+    invoke<boolean>("acknowledge_permission_change"),
+  copyResetCommand: () => invoke<void>("copy_reset_command"),
+  openPrivacySettings: () => invoke<void>("open_privacy_settings"),
 };

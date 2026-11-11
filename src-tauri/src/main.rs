@@ -5,12 +5,15 @@ mod cleanup;
 mod commands;
 mod sysmon;
 mod models;
+mod permissions;
 mod privilege;
+mod shortcuts;
 mod store;
 mod tray;
 mod util;
 
 use std::process::Child;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -19,6 +22,21 @@ use tauri::Manager;
 // 因此必须把生命周期事件落盘到 ~/Library/Logs/，才能在用户真机上事后分析
 // 「守护为何没起来」。Swift 侧见 src-tauri/swift/main.swift 的同名日志。
 use std::io::Write;
+
+/// 守护启动串行锁：setup 线程与看门狗线程不得同时 spawn，
+/// 否则两边各自 kill_port_holder 会互相杀掉刚 listen 的守护。
+static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+/// 退出时置位，阻止看门狗在退出清理后又把守护拉起来。
+static WATCHDOG_STOP: AtomicBool = AtomicBool::new(false);
+/// 最近一次 spawn 完成的 unix 秒（0 = 首轮 spawn 尚未结束）。看门狗据此冷却。
+static LAST_SPAWN_DONE: AtomicU64 = AtomicU64::new(0);
+
+fn unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
 
 fn now_ts() -> String {
     if let Ok(out) = std::process::Command::new("/bin/date")
@@ -109,7 +127,14 @@ pub fn kill_port_holder() {
 /// 端口已被占用（旧实例在跑）时直接跳过——守护自身带父进程看门狗，
 /// 父进程退出即自我回收，无需本进程持有其句柄。
 /// 全程向 switchkit-rust.log 写生命周期日志，便于真机事后定位。
+/// 调用方：App 启动（后台线程）+ 守护看门狗自愈；两者由 SPAWN_LOCK 串行化。
 fn spawn_sidecar() {
+    let _guard = SPAWN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    spawn_sidecar_inner();
+    LAST_SPAWN_DONE.store(unix_secs(), Ordering::SeqCst);
+}
+
+fn spawn_sidecar_inner() {
     use std::net::TcpStream;
     use std::time::Duration;
     lifecycle_log("spawn_sidecar: enter");
@@ -179,7 +204,10 @@ fn spawn_sidecar() {
 }
 
 /// spawn 守护进程并把它的 stderr 重定向到 daemon 日志文件，
-/// 探测 9876 是否在 ~1s 内就绪；就绪返回 true。
+/// 探测 9876 是否在 ~9s 内就绪；就绪返回 true。
+/// 就绪窗口必须够宽：OTA 落地的裸签名 .app / 换包后首次执行，系统会重做
+/// 代码签名与 Gatekeeper 评估，sidecar 可能卡在 Swift 第一行之前数秒。
+/// 旧的 1s 窗口把这种「正在启动的健康进程」误杀，且此后无重试 → 守护永久不亮。
 /// 守护独立常驻：就绪后 std::mem::forget 脱离句柄，由其自带父进程看门狗回收。
 /// 未就绪时回收该子进程并记录诊断信息（是否拉起、是否还活着、其 stderr 已落盘）。
 fn try_spawn_daemon(path: &std::path::Path) -> bool {
@@ -221,13 +249,14 @@ fn try_spawn_daemon(path: &std::path::Path) -> bool {
         pid,
         path.display()
     ));
+    // 60 × (50ms connect + 100ms sleep) ≈ 9s。正常启动 <1s 即 break，不拖慢启动。
     let mut up = false;
-    for _ in 0..20 {
+    for _ in 0..60 {
         if TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
             up = true;
             break;
         }
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(Duration::from_millis(100));
     }
     if up {
         lifecycle_log(&format!(
@@ -239,7 +268,7 @@ fn try_spawn_daemon(path: &std::path::Path) -> bool {
     } else {
         let alive = is_process_alive(pid);
         lifecycle_log(&format!(
-            "try_spawn_daemon: pid {} NOT up after ~1s; alive={}; 其 stderr 见 daemon 日志",
+            "try_spawn_daemon: pid {} NOT up after ~9s; alive={}; 其 stderr 见 daemon 日志",
             pid, alive
         ));
         let _ = child.kill();
@@ -317,6 +346,51 @@ fn strip_quarantine(path: &std::path::Path) {
     }
 }
 
+/// 守护自愈看门狗：App 生命周期内每 5s 探一次 9876，连续两次失败且距上次
+/// spawn 超过 12s 时重新拉起守护。
+///
+/// 为什么需要：spawn_sidecar 此前只在 setup 跑一次，一旦某次启动被系统策略
+/// 评估拖慢或被 AMFI 拦下，整个 App 会话里守护永远不会再起来，面板「原生守护」
+/// 一直灰，用户只能手动重启 App。看门狗把「一次性启动」变成「持续保证」。
+pub fn start_sidecar_watchdog() {
+    std::thread::spawn(|| {
+        use std::net::TcpStream;
+        let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
+            Ok(a) => a,
+            Err(_) => return,
+        };
+        let mut failures = 0u32;
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            if WATCHDOG_STOP.load(Ordering::SeqCst) {
+                lifecycle_log("watchdog: stop requested, exiting");
+                break;
+            }
+            if TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(400)).is_ok() {
+                failures = 0;
+                continue;
+            }
+            failures += 1;
+            if failures < 2 {
+                continue;
+            }
+            let last = LAST_SPAWN_DONE.load(Ordering::SeqCst);
+            // 0 = setup 首轮 spawn 还在进行；别插队，也别在刚 spawn 完就重启。
+            if last == 0 || unix_secs().saturating_sub(last) < 12 {
+                continue;
+            }
+            lifecycle_log("watchdog: 9876 down twice, respawning daemon");
+            spawn_sidecar(); // 内部持 SPAWN_LOCK，与 setup 的 spawn 串行
+            failures = 0;
+        }
+    });
+}
+
+/// 退出前调用：阻止看门狗在 shutdown_sidecar 清掉端口后又拉起守护。
+pub fn stop_sidecar_watchdog() {
+    WATCHDOG_STOP.store(true, Ordering::SeqCst);
+}
+
 fn main() {
     let mut builder = tauri::Builder::default()
         // 单实例：launchd 拉起或手动双开时，新进程立即退出并唤起已有面板，
@@ -327,6 +401,9 @@ fn main() {
                 let _ = w.set_focus();
             }
         }))
+        // 全局快捷键：Rust 侧注册（不经前端 IPC），只在后台线程调用注册/注销，
+        // 因为插件在 macOS 上会 dispatch 到主线程并同步等待。
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             // accessory 模式：无 Dock 图标、无 App Switcher 条目
             let _ = app
@@ -367,8 +444,10 @@ fn main() {
             // 包被替换/移动后修正开机自启指向（旧路径会让 launchd 拉起旧副本）
             store::repair_launch_agent();
 
-            // 拉起守护进程（独立常驻，不持有句柄）
-            spawn_sidecar();
+            // 拉起守护进程（独立常驻，不持有句柄）。放到后台线程：就绪窗口
+            // 最坏 9s，不能让它阻塞面板出现；看门狗在 App 生命周期内持续兜底。
+            start_sidecar_watchdog();
+            std::thread::spawn(|| spawn_sidecar());
 
             // 自动清理定时器：后台线程，启动 ~60s 后首检，之后每小时检查一次。
             // 仅清理 safe 级项；周期与开关来自持久化设置。
@@ -386,11 +465,26 @@ fn main() {
                 screen_cleaned: Mutex::new(false),
                 sysmon: Mutex::new(crate::sysmon::SystemMonitor::new()),
             });
+
+            // 恢复持久化的全局快捷键。必须在后台线程：插件在 macOS 上把注册
+            // dispatch 到主线程并阻塞等待，主线程里调用会死锁；稍等 runloop 起来。
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(800));
+                    crate::shortcuts::restore_on_startup(&handle);
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_toggle_states,
             commands::get_system_stats,
+            commands::get_appearance_mode,
+            commands::set_appearance_mode,
+            commands::cycle_appearance_mode,
+            commands::open_system_screenshot,
+            commands::set_shortcut_bindings,
             commands::toggle_dark_mode,
             commands::toggle_hide_desktop,
             commands::toggle_prevent_sleep,
@@ -425,6 +519,11 @@ fn main() {
             commands::bt_disconnect,
             commands::quit_app,
             commands::get_update_config,
+            permissions::get_permission_state,
+            permissions::refresh_permissions,
+            permissions::acknowledge_permission_change,
+            permissions::copy_reset_command,
+            permissions::open_privacy_settings,
         ]);
 
     // 在线更新：插件始终注册；更新服务在 tauri.conf.json `plugins.updater`

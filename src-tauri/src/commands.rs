@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -18,6 +19,133 @@ fn is_dark_mode() -> bool {
         Ok(out) => out.contains("Dark"),
         Err(_) => false,
     }
+}
+
+/// 「自动」外观开关：AppleInterfaceStyleSwitchesAutomatically。
+/// 该键与 AppleInterfaceStyle 可以同时存在（本机 12.7.6 实测 auto=1 + Dark），
+/// 所以判断外观必须先看它，否则 Auto 模式下会把当前生效外观误报成手动深色。
+fn is_auto_appearance() -> bool {
+    util::run(
+        "defaults",
+        &["read", "-g", "AppleInterfaceStyleSwitchesAutomatically"],
+    )
+    .map(|out| matches!(out.trim(), "1" | "true" | "TRUE"))
+    .unwrap_or(false)
+}
+
+pub fn appearance_mode() -> AppearanceMode {
+    if is_auto_appearance() {
+        AppearanceMode::Auto
+    } else if is_dark_mode() {
+        AppearanceMode::Dark
+    } else {
+        AppearanceMode::Light
+    }
+}
+
+/// 写全局偏好后广播主题变更通知，尽力让系统立即重算外观。
+///
+/// 为什么需要：系统设置面板切换外观时除了写 .GlobalPreferences，还会发
+/// AppleInterfaceThemeChangedNotification；只写 defaults 时部分系统版本要等到
+/// 注销/重新登录才刷新。这里用 CoreFoundation 的 distributed center 补发同名通知，
+/// 失败也无害（偏好已落盘，最迟下次登录或系统日程判断时生效）。
+#[cfg(target_os = "macos")]
+mod theme_notify {
+    use std::ffi::CString;
+    use std::os::raw::{c_char, c_void};
+
+    type CFStringRef = *const c_void;
+    type CFNotificationCenterRef = *const c_void;
+    const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFStringCreateWithCString(
+            alloc: *const c_void,
+            c_str: *const c_char,
+            encoding: u32,
+        ) -> CFStringRef;
+        fn CFRelease(cf: *const c_void);
+        fn CFNotificationCenterGetDistributedCenter() -> CFNotificationCenterRef;
+        fn CFNotificationCenterPostNotification(
+            center: CFNotificationCenterRef,
+            name: CFStringRef,
+            object: *const c_void,
+            user_info: *const c_void,
+            deliver_immediately: bool,
+        );
+    }
+
+    pub fn post_theme_changed() {
+        unsafe {
+            let Ok(raw) = CString::new("AppleInterfaceThemeChangedNotification") else {
+                return;
+            };
+            let name = CFStringCreateWithCString(
+                std::ptr::null(),
+                raw.as_ptr(),
+                K_CF_STRING_ENCODING_UTF8,
+            );
+            if name.is_null() {
+                return;
+            }
+            let center = CFNotificationCenterGetDistributedCenter();
+            if !center.is_null() {
+                CFNotificationCenterPostNotification(
+                    center,
+                    name,
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    true,
+                );
+            }
+            CFRelease(name);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod theme_notify {
+    pub fn post_theme_changed() {}
+}
+
+/// 设置外观三态。浅/深沿用现有 System Events AppleScript（即时生效并广播通知），
+/// 自动只写系统偏好键 —— 由 macOS 自己按日出/日落或夜览日程切换。
+pub fn apply_appearance_mode(mode: AppearanceMode) -> Result<(), String> {
+    match mode {
+        AppearanceMode::Auto => {
+            util::run(
+                "defaults",
+                &[
+                    "write",
+                    "-g",
+                    "AppleInterfaceStyleSwitchesAutomatically",
+                    "-bool",
+                    "true",
+                ],
+            )?;
+        }
+        AppearanceMode::Light | AppearanceMode::Dark => {
+            // 先退出 Auto，否则系统日程会很快把手动选择覆盖回去。
+            util::run(
+                "defaults",
+                &[
+                    "write",
+                    "-g",
+                    "AppleInterfaceStyleSwitchesAutomatically",
+                    "-bool",
+                    "false",
+                ],
+            )?;
+            let script = format!(
+                "tell application \"System Events\" to tell appearance preferences to set dark mode to {}",
+                if mode == AppearanceMode::Dark { "true" } else { "false" }
+            );
+            util::run_osascript(&script)?;
+        }
+    }
+    theme_notify::post_theme_changed();
+    Ok(())
 }
 
 fn is_desktop_hidden() -> bool {
@@ -276,6 +404,7 @@ pub async fn get_toggle_states(state: State<'_, AppState>) -> Result<ToggleState
     let screen_clean = s.screen_cleaned.lock().map(|g| *g).unwrap_or(false);
     Ok(ToggleStates {
         dark_mode: is_dark_mode(),
+        appearance_mode: appearance_mode().as_str().to_string(),
         desktop_hidden: is_desktop_hidden(),
         prevent_sleep: is_prevent_sleep(s),
         trash_count: trash_count(),
@@ -287,15 +416,60 @@ pub async fn get_toggle_states(state: State<'_, AppState>) -> Result<ToggleState
     })
 }
 
+/// 外观三态：读取（轻量，前端轮询用，不跑全套 get_toggle_states）。
+#[tauri::command]
+pub async fn get_appearance_mode() -> String {
+    appearance_mode().as_str().to_string()
+}
+
+#[tauri::command]
+pub async fn set_appearance_mode(mode: String) -> Result<String, String> {
+    let target = AppearanceMode::from_str_opt(&mode)
+        .ok_or_else(|| format!("未知外观模式：{}", mode))?;
+    apply_appearance_mode(target)?;
+    Ok(appearance_mode().as_str().to_string())
+}
+
+/// 面板「外观」按钮与全局快捷键共用：浅 → 深 → 自动 → 浅。
+#[tauri::command]
+pub async fn cycle_appearance_mode() -> Result<String, String> {
+    apply_appearance_mode(appearance_mode().cycle())?;
+    Ok(appearance_mode().as_str().to_string())
+}
+
+/// 兼容旧入口：在浅/深之间切换并退出自动模式。
 #[tauri::command]
 pub async fn toggle_dark_mode() -> Result<bool, String> {
-    let next = !is_dark_mode();
-    let script = format!(
-        "tell application \"System Events\" to tell appearance preferences to set dark mode to {}",
-        if next { "true" } else { "false" }
-    );
-    util::run_osascript(&script)?;
-    Ok(next)
+    let next = if appearance_mode() == AppearanceMode::Dark {
+        AppearanceMode::Light
+    } else {
+        AppearanceMode::Dark
+    };
+    apply_appearance_mode(next)?;
+    Ok(next == AppearanceMode::Dark)
+}
+
+/// 拉起系统截图工具栏（⌘⇧5 的同一个 App）。
+///
+/// 关键：必须用 LaunchServices 启动系统 App，不能 spawn /usr/sbin/screencapture。
+/// 本机实测该 CLI 带 com.apple.private.tcc.check-allow-on-responsible-process，
+/// TCC 检查的是调用者；从本 App spawn 会被要求屏幕录制权限，且未授权时静默产出黑图。
+/// 走 `open -b` 时采集由系统 App 负责，本应用零新增权限。
+#[tauri::command]
+pub async fn open_system_screenshot() -> Result<(), String> {
+    if util::run("/usr/bin/open", &["-b", "com.apple.screenshot.launcher"]).is_ok() {
+        return Ok(());
+    }
+    // 极老系统 / LaunchServices 未登记时的兜底：按名称与路径打开。
+    if util::run("/usr/bin/open", &["-a", "Screenshot"]).is_ok() {
+        return Ok(());
+    }
+    util::run(
+        "/usr/bin/open",
+        &["/System/Applications/Utilities/Screenshot.app"],
+    )
+    .map(|_| ())
+    .map_err(|e| format!("无法打开系统截图工具栏：{}", e))
 }
 
 #[tauri::command]
@@ -452,6 +626,8 @@ pub async fn bt_disconnect(address: String) -> Result<bool, String> {
 /// 守护进程是 AppKit 常驻进程，不主动回收会占住 .app 包内二进制文件，
 /// 表现为「点了退出，但覆盖安装新版本时提示正在运行」。
 pub fn shutdown_sidecar(_app: &AppHandle) {
+    // 先停看门狗：否则清掉端口后它会把守护重新拉起，导致退出后进程残留。
+    crate::stop_sidecar_watchdog();
     // 守护进程由自身父进程看门狗在 App 退出时回收，本进程不再持有其句柄；
     // 端口兜底：清掉旧版本遗留的守护进程，避免升级后仍被 9876 占用。
     crate::kill_port_holder();
@@ -679,6 +855,27 @@ pub async fn sidecar_status() -> SidecarStatus {
     SidecarStatus { running: true, bluetooth }
 }
 
+
+// ---------------- 全局快捷键 ----------------
+
+/// 保存并立即应用绑定。必须在阻塞线程池里执行：tauri-plugin-global-shortcut
+/// 在 macOS 上会把注册/注销 dispatch 到主线程并同步等待，若在主线程调用会死锁。
+#[tauri::command]
+pub async fn set_shortcut_bindings(
+    app: AppHandle,
+    bindings: HashMap<String, String>,
+) -> Result<Vec<ShortcutReport>, String> {
+    let mut s = crate::store::load_settings(&app);
+    s.shortcut_bindings = bindings.clone();
+    crate::store::save_settings(&app, &s)?;
+    let handle = app.clone();
+    let reports = tauri::async_runtime::spawn_blocking(move || {
+        crate::shortcuts::apply_bindings(&handle, &bindings)
+    })
+    .await
+    .map_err(|e| format!("快捷键注册任务失败：{}", e))?;
+    Ok(reports)
+}
 
 // ---------------- 在线更新 ----------------
 

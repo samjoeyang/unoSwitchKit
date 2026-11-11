@@ -239,7 +239,7 @@
       <a class="btn btn-ghost" href="#install">查看安装方式</a>
     </div>
     <div class="hero-meta">
-      <span>🍎 macOS 10.14+</span>
+      <span>🍎 macOS 12.7.6+</span>
       <span>📦 安装包 &lt; 15MB</span>
       <span>💾 常驻内存 &lt; 50MB</span>
       <span>⚡ 通用二进制 (Apple &amp; Intel)</span>
@@ -258,7 +258,12 @@
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#7FB8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></div>
         <h3>快捷开关</h3>
-        <p>深色模式、隐藏桌面图标、阻止睡眠、清空废纸篓、隐藏 Dock、显示隐藏文件、屏幕清洁、台前调度（macOS 13+）。</p>
+        <p>外观三态（浅 / 深 / 自动）、隐藏桌面图标、阻止睡眠、清空废纸篓、隐藏 Dock、显示隐藏文件、屏幕清洁、台前调度（macOS 13+）。</p>
+      </div>
+      <div class="card">
+        <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#7FB8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14A8 8 0 0 1 10 4a8 8 0 1 0 10 10z"/><path d="M4 20h7M8 17v6"/></svg></div>
+        <h3>自动外观 &amp; 全局快捷键</h3>
+        <p>「自动」由 macOS 按日出/日落切换，不读定位、不常驻计算；设置页可为常用动作录制组合键；一键拉起系统截图工具栏，截图由系统 App 完成。三项都无需新增隐私权限。</p>
       </div>
       <div class="card">
         <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="#7FB8FF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg></div>
@@ -340,29 +345,37 @@
     <div class="sec-head">
       <div class="kicker">Install</div>
       <h2>安装方式</h2>
-      <p>三步完成。分发包为 ad-hoc 签名、未公证，按下方提示首次放行即可。</p>
+      <p>三步完成。分发包为 ad-hoc 签名、未公证（项目不申请 Developer ID / 不做 Apple 公证）；<b>每个新包、每次在线更新都要重新放行并重新授权一次</b>，详见下方说明。</p>
     </div>
     <div class="two">
       <div class="panel">
         <h3>📋 系统要求</h3>
-        <div class="req"><span class="ck">✓</span><div>macOS 10.14 及以上（台前调度开关仅 macOS 13+ 显示，其余功能不受影响）</div></div>
+        <div class="req"><span class="ck">✓</span><div>macOS 12.7.6（Monterey）及以上（台前调度开关仅 macOS 13+ 显示，其余功能不受影响；macOS 12.0–12.7.5 不受支持）</div></div>
         <div class="req"><span class="ck">✓</span><div>Apple Silicon 与 Intel 均支持，分发包为 universal 通用二进制</div></div>
         <div class="req"><span class="ck">✓</span><div>蓝牙整机开关需额外 <code style="color:#cfe3ff">brew install blueutil</code>（可选）</div></div>
-        <h3 style="margin-top:26px">🔐 首次运行需授予的权限</h3>
+        <h3 style="margin-top:26px">🔐 需要授予的权限</h3>
         <table>
           <tr><th>权限</th><th>用途</th></tr>
-          <tr><td><b>自动化 (Finder)</b></td><td>清空废纸篓、关闭所有应用</td></tr>
+          <tr><td><b>自动化 (Finder)</b></td><td>清空废纸篓、废纸篓计数</td></tr>
+          <tr><td><b>自动化 (System Events)</b></td><td>深色模式、屏幕清洁、关闭所有应用</td></tr>
           <tr><td><b>完全磁盘访问</b></td><td>清理 Safari 等受保护缓存（需重启 App 生效）</td></tr>
+          <tr><td><b>文件和文件夹</b></td><td>大文件扫描、应用占用统计</td></tr>
           <tr><td><b>蓝牙</b></td><td>列出 / 连接蓝牙设备</td></tr>
           <tr><td><b>管理员密码</b></td><td>释放内存、刷新 DNS（凭据不落盘）</td></tr>
         </table>
+        <p class="note" style="margin-top:14px">⚠️ <b>每次更新后需重新授权</b>：ad-hoc 签名每次换包都会产生新签名，macOS 把它当作新 App，之前的隐私授权会静默失效——系统设置里的开关仍显示「开」，而且通常不会重新弹窗。退出 App 后在终端执行下面命令，重开 App 再逐项触发功能并允许弹窗：</p>
+        <div class="copy">
+          <button onclick="copyCmd(this)">复制</button>
+<pre>tccutil reset All com.switchkit.app</pre>
+        </div>
+        <p class="note" style="margin-top:10px">App 面板顶部会自动检测换包并提示，提供一键复制命令、打开系统设置与权限自检入口。个别系统级权限可能需要重启 macOS 后才重新弹窗。</p>
       </div>
       <div class="panel">
         <h3>🚀 安装步骤</h3>
         <ol class="steps">
           <li><b>下载</b>。前往 <a href="#download">官网下载页</a>，按芯片选择对应版本（Apple 芯片选 <b>arm64</b>、Intel 选 <b>x86_64</b>、不确定选 <b>universal</b>），下载压缩包。</li>
           <li><b>解压并拖入应用程序</b>。在本地双击解压得到 <b>SwitchKit.app</b>，把它拖进 <code>/Applications</code>（「应用程序」文件夹）。不要在压缩包内直接双击运行。</li>
-          <li><b>首次启动</b>。打开「应用程序」文件夹，<b>直接点 SwitchKit 图标打开</b>（无需在 Finder 里右键）。macOS 会弹出安全警告，按下方 4 步放行即可，只需一次。</li>
+          <li><b>首次启动 / 每次换包后启动</b>。打开「应用程序」文件夹，<b>直接点 SwitchKit 图标打开</b>。macOS 会弹出安全警告，按下方 4 步放行；macOS 15 起已取消「右键 → 打开」绕过，<b>每个新下载包、每次在线更新后都要重做一次</b>。</li>
         </ol>
         <p class="note" style="margin-top:18px">启动后<b>没有 Dock 图标</b>，点菜单栏上的 SwitchKit 图标即可展开面板。若下方步骤仍提示「已损坏，无法打开」，在终端执行下面命令移除隔离属性后重试：</p>
         <div class="copy">
@@ -424,7 +437,7 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
         <div class="dl-ic">🍎</div>
         <h3>Apple 芯片</h3>
         <p class="dl-sub">M1 / M2 / M3 / M4 等</p>
-        <div class="dl-meta">arm64 · macOS 10.14+</div>
+        <div class="dl-meta">arm64 · macOS 12.7.6+</div>
         <a class="btn btn-ghost" href="https://github.com/samjoeyang/unoSwitchKit/releases/download/v0.4.11/SwitchKit-0.4.11-aarch64.zip" target="_blank" rel="noopener" download>下载</a>
       </div>
       <div class="dl-card" data-arch="x86_64">
@@ -432,7 +445,7 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
         <div class="dl-ic">💻</div>
         <h3>Intel 芯片</h3>
         <p class="dl-sub">Core / Xeon 等</p>
-        <div class="dl-meta">x86_64 · macOS 10.14+</div>
+        <div class="dl-meta">x86_64 · macOS 12.7.6+</div>
         <a class="btn btn-ghost" href="https://github.com/samjoeyang/unoSwitchKit/releases/download/v0.4.11/SwitchKit-0.4.11-x86_64.zip" target="_blank" rel="noopener" download>下载</a>
       </div>
       <div class="dl-card recommend" data-arch="universal">
@@ -444,7 +457,7 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
         <a class="btn btn-ghost" href="https://github.com/samjoeyang/unoSwitchKit/releases/download/v0.4.11/SwitchKit-0.4.11-universal.zip" target="_blank" rel="noopener" download>下载</a>
       </div>
     </div>
-    <p class="dl-tip">分发包为 ad-hoc 签名、未公证，首次打开会弹出安全警告，按<a href="#install">安装方式</a>中的 4 步放行即可（只需一次）。<br>版本 v0.4.11 · 系统要求 macOS 10.14+</p>
+    <p class="dl-tip">分发包为 ad-hoc 签名、未公证，首次打开会弹出安全警告，按<a href="#install">安装方式</a>中的 4 步放行即可；每次换包都要重做，并需按说明重新授权系统权限。<br>版本 v0.4.11 · 系统要求 macOS 12.7.6+</p>
   </div>
 </section>
 

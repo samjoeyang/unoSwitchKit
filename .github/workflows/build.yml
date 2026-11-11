@@ -17,7 +17,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # 与 tauri.conf.json bundle.macOS.minimumSystemVersion 对齐，避免老系统装上即崩
-  MACOSX_DEPLOYMENT_TARGET: "10.14"
+  MACOSX_DEPLOYMENT_TARGET: "12.7.6"
   # CI 连跑多架构构建，交给工作流在最后统一还原 tauri.conf.json
   SKIP_CONF_RESTORE: "1"
   # OTA 总开关：secrets 不能用于 if 表达式，故先在 env 里求值，步骤 if 再读 env.OTA_ENABLED
@@ -162,6 +162,38 @@ jobs:
             fi
             ( cd "src-tauri/target/$t/release/bundle/macos" && zip -r -y "SwitchKit-${VERSION}-${arch}.zip" "SwitchKit.app" )
             echo "-> SwitchKit-${VERSION}-${arch}.zip ($(lipo -archs "$APP/Contents/MacOS/unoswitchkit" 2>/dev/null || echo '?'))"
+
+            # OTA 包必须重打：Tauri 在 codesign 之前就生成 .app.tar.gz，里面是
+            # 「完全未签名」的 .app。OTA 落地后 Intel 上首次 exec 会被系统策略
+            # 评估挂起数秒（守护 9876 起不来、面板灰），Apple Silicon 上更会被
+            # AMFI 直接拒绝。zip 分发包走上面的签名后打包，不受影响。
+            if [ "$OTA_ENABLED" = "true" ]; then
+              MACOS_DIR="src-tauri/target/$t/release/bundle/macos"
+              GZ="$MACOS_DIR/SwitchKit.app.tar.gz"
+              codesign -dv "$APP/Contents/MacOS/switchkit-daemon" >/dev/null 2>&1 || {
+                echo "❌ 嵌套守护进程未签名，拒绝产出 OTA 包"; exit 1;
+              }
+              ( cd "$MACOS_DIR" && COPYFILE_DISABLE=1 tar -czf "SwitchKit.app.tar.gz" "SwitchKit.app" )
+              rm -f "$GZ.sig"
+              KEYFILE="$TAURI_SIGNING_PRIVATE_KEY"
+              # secret 必须是 base64(minisign 私钥文本) 的外层单行串，与 tauri build 一致。
+              # 格式漂移时先明确报错，别等 manifest 阶段才发现 .sig 无效。
+          python3 - "$KEYFILE" <<'PY'
+          import base64, sys
+          raw = open(sys.argv[1], "rb").read().strip()
+          try:
+              dec = base64.b64decode(raw, validate=True)
+          except Exception as e:
+              raise SystemExit(f"OTA 私钥不是 base64 包装格式: {e}")
+          if b"untrusted comment" not in dec:
+              raise SystemExit("OTA 私钥解码后不是 minisign 私钥文本")
+          PY
+              # -f 显式给私钥路径；清掉同名 env，避免 CLI 把路径当 key 内容读
+              env -u TAURI_SIGNING_PRIVATE_KEY npx tauri signer sign \
+                -f "$KEYFILE" -p "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" \
+                --app-version "$VERSION" "$GZ"
+              echo "-> OTA 包已重打并签名（含 ad-hoc 签名的 .app + 守护）：$GZ"
+            fi
           done
 
       # 提取本版本变更详情（CHANGELOG 对应版本段），供 Release 正文与 OTA manifest 复用
@@ -179,6 +211,10 @@ jobs:
           notes = (m.group(0).strip() if m else f"SwitchKit {ver}").replace('\r', '')
           with open("release_notes.md", "w") as f:
               f.write(notes + "\n")
+              # ad-hoc 签名每次换包都会让 TCC 授权静默失效，Release 正文固定附恢复流程
+              f.write("\n---\n### 安装与更新后必读\n")
+              f.write("本版本为 ad-hoc 签名、未经 Apple 公证。下载后请在「系统设置 → 隐私与安全性」点「仍要打开」（每个新包、每次更新都要重做）。\n\n")
+              f.write("**每次更新都会使系统隐私授权失效**：完全退出 SwitchKit，在终端执行 `tccutil reset All com.switchkit.app`，重新打开 App 后按面板顶部提示逐项触发功能并允许授权弹窗。\n")
               if "${{ env.OTA_ENABLED }}" == "true":
                   f.write("\n---\n已启用在线更新：应用内「检查更新」将拉取本 Release 的 latest.json。\n")
               f.write(f"\n---\n构建信息：commit `{sha[:7]}` · ref `{ref}`\n")

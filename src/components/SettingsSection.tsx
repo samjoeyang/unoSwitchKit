@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../ipc";
 import { KeyForm } from "./KeyForm";
+import { ShortcutSection } from "./ShortcutSection";
 
 interface Props {
   version: string;
@@ -17,6 +18,10 @@ interface Props {
   balanceVersion: number;
   /// 设置项操作提示（如开机自启切换结果）
   notice?: string | null;
+  /// 权限自检（主动探测会触发系统授权弹窗）
+  permChecking: boolean;
+  permissionSummary: string | null;
+  onCheckPermissions: () => void;
   onClose: () => void;
 }
 
@@ -31,6 +36,9 @@ export function SettingsSection({
   onBalanceChanged,
   balanceVersion,
   notice,
+  permChecking,
+  permissionSummary,
+  onCheckPermissions,
   onClose,
 }: Props) {
   const [keyCount, setKeyCount] = useState<number | null>(null);
@@ -125,6 +133,48 @@ export function SettingsSection({
             </div>
           )}
         </div>
+
+        {/* 权限自检：ad-hoc 签名每次换包都会使 TCC 授权静默失效 */}
+        <div className="py-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className={rowLabel}>权限自检</div>
+              <div className={rowHint}>检查自动化等授权是否仍生效</div>
+            </div>
+            <button
+              onClick={onCheckPermissions}
+              disabled={permChecking}
+              className={actionBtn}
+            >
+              {permChecking ? "检查中…" : "检查"}
+            </button>
+          </div>
+          {permissionSummary && (
+            <div className="mt-1 text-[10px] leading-snug text-white/40">
+              {permissionSummary}
+            </div>
+          )}
+          <div className="mt-1 text-[10px] leading-snug text-white/30">
+            检查可能弹出系统授权窗口；每次换包后需执行{" "}
+            <code className="select-all font-mono text-white/45">
+              tccutil reset All com.switchkit.app
+            </code>
+          </div>
+        </div>
+
+        {/* 日出日落自动切换：复用系统 Auto，不读定位、不自研天文算法 */}
+        <div className="py-2">
+          <div className={rowLabel}>日出日落自动切换</div>
+          <div className="mt-0.5 text-[10px] leading-snug text-white/35">
+            面板「外观」点第三次进入「自动」，由 macOS 按日出/日落或夜览日程切换；
+            切换可能有延迟，SwitchKit 不读取定位、不常驻计算。macOS 12 需先在
+            「系统偏好设置 → 显示器 → 夜览」把日程设为「日落到日出」，13+ 在
+            「系统设置 → 外观」把外观设为自动。
+          </div>
+        </div>
+
+        {/* 全局快捷键：只注册零新增权限的普通组合键 */}
+        <ShortcutSection />
 
         {/* 余额查询代理：部分境外站点直连会被重置 */}
         <div className="py-2">

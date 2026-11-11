@@ -1,5 +1,9 @@
+export type AppearanceMode = "light" | "dark" | "auto";
+
 export interface ToggleStates {
   dark_mode: boolean;
+  /** 外观三态；auto 时 dark_mode 只代表当前生效外观 */
+  appearance_mode: AppearanceMode;
   desktop_hidden: boolean;
   prevent_sleep: boolean;
   trash_count: number;
@@ -137,6 +141,15 @@ export interface Settings {
   exclude_paths: string[];
   /// 下载目录过期文件判定天数（修改时间早于该天数视为可清理），默认 30
   downloads_expire_days: number;
+  /// 全局快捷键绑定：动作 id → 组合键字符串
+  shortcut_bindings: Record<string, string>;
+}
+
+export interface ShortcutReport {
+  action: string;
+  shortcut: string;
+  ok: boolean;
+  error: string | null;
 }
 
 export interface SidecarStatus {
@@ -153,4 +166,29 @@ export interface BtDevice {
 export interface UpdateConfig {
   enabled: boolean;
   current_version: string;
+}
+
+export type PermissionStatus = "granted" | "denied" | "unknown";
+
+export interface PermissionItem {
+  key: string;
+  label: string;
+  status: PermissionStatus;
+  /// 当前版本是否实际使用该权限；false 为预留项，不参与告警
+  required: boolean;
+  detail: string;
+  /// 对应的 tccutil service 名
+  service: string;
+}
+
+export interface PermissionState {
+  /// 当前签名哈希与上次记录不一致 → 刚换过包，需要重新授权
+  app_changed: boolean;
+  /// 当前 CDHash 前 8 位，仅用于诊断展示
+  cdhash: string;
+  bundle_id: string;
+  reset_command: string;
+  /// 是否执行过主动探测（会触发 AppleEvents 授权弹窗）
+  probed: boolean;
+  items: PermissionItem[];
 }

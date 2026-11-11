@@ -6,13 +6,22 @@ import { BluetoothSection } from "./components/BluetoothSection";
 import { BalanceSection } from "./components/BalanceSection";
 import { SettingsSection } from "./components/SettingsSection";
 import { StatusDot } from "./components/StatusDot";
+import { PermissionBanner } from "./components/PermissionBanner";
 import { api } from "./ipc";
 import { checkAndInstall } from "./update";
 import { getVersion } from "@tauri-apps/api/app";
-import type { ToggleStates } from "./types";
+import type { AppearanceMode, PermissionState, ToggleStates } from "./types";
+
+const NEXT_APPEARANCE: Record<AppearanceMode, AppearanceMode> = {
+  light: "dark",
+  dark: "auto",
+  auto: "light",
+};
 
 export default function App() {
   const [states, setStates] = useState<ToggleStates | null>(null);
+  // 外观三态单独维护：Auto 由系统按日出/日落切换，面板常开时也要跟上
+  const [appearanceMode, setAppearanceMode] = useState<AppearanceMode | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [launch, setLaunch] = useState(false);
   const [sidecar, setSidecar] = useState<boolean | null>(null);
@@ -28,10 +37,16 @@ export default function App() {
   const [dnsStatus, setDnsStatus] = useState<string | null>(null);
   // 应用版本：运行时从二进制读取（getVersion），避免硬编码与发布版本脱节
   const [appVersion, setAppVersion] = useState("0.4.2");
+  // 权限自检：换包后由后端比对签名哈希，驱动顶部重新授权引导
+  const [permState, setPermState] = useState<PermissionState | null>(null);
+  const [permChecking, setPermChecking] = useState(false);
+  const [permissionSummary, setPermissionSummary] = useState<string | null>(null);
 
   async function refresh() {
     try {
-      setStates(await api.getToggleStates());
+      const s = await api.getToggleStates();
+      setStates(s);
+      setAppearanceMode(s.appearance_mode);
     } catch {
       /* 面板尚未就绪时忽略 */
     }
@@ -59,21 +74,68 @@ export default function App() {
       setUpdateEnabled(false);
     }
   }
+  async function loadPermissionState() {
+    try {
+      setPermState(await api.getPermissionState());
+    } catch {
+      /* 权限查询失败不阻塞面板 */
+    }
+  }
+  /// 主动检查：会尝试触发 AppleEvents 授权弹窗，仅在用户点击时执行。
+  async function checkPermissions() {
+    setPermChecking(true);
+    try {
+      const s = await api.refreshPermissions();
+      setPermState(s);
+      const bad = s.items.filter((i) => i.required && i.status === "denied");
+      setPermissionSummary(
+        bad.length
+          ? `发现 ${bad.length} 项未生效，详见面板顶部提示`
+          : "未发现明确失效项（灰色项需在实际使用时由系统弹窗确认）"
+      );
+    } catch (e) {
+      setPermissionSummary(`检查失败：${e}`);
+    } finally {
+      setPermChecking(false);
+    }
+  }
+  async function refreshPermissions() {
+    await checkPermissions();
+  }
+  async function acknowledgePermissions() {
+    await api.acknowledgePermissionChange();
+    await loadPermissionState();
+  }
 
   useEffect(() => {
     refresh();
     loadLaunch();
     loadSidecar();
     loadUpdateConfig();
+    loadPermissionState();
     getVersion().then(setAppVersion).catch(() => {});
     const t = setInterval(loadSidecar, 5000);
+    // 自动外观由系统切换（可能延迟到闲置时），面板常开时用轻量命令跟上，
+    // 不跑 get_toggle_states 的十余次外部进程调用。
+    const appearanceTimer = setInterval(async () => {
+      if (document.hidden) return;
+      try {
+        setAppearanceMode(await api.getAppearanceMode());
+      } catch {
+        /* 忽略 */
+      }
+    }, 30000);
     // 面板每次重新显示时刷新（避免托盘弹出后显示过期状态，如废纸篓计数）
     const onVis = () => {
-      if (!document.hidden) refresh();
+      if (!document.hidden) {
+        refresh();
+        loadPermissionState();
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
       clearInterval(t);
+      clearInterval(appearanceTimer);
       document.removeEventListener("visibilitychange", onVis);
     };
   }, []);
@@ -101,8 +163,12 @@ export default function App() {
   async function onToggle(key: ToggleKey) {
     setBusy(key);
     try {
-      if (key === "dark_mode") await api.toggleDarkMode();
-      else if (key === "desktop_hidden") await api.toggleHideDesktop();
+      if (key === "dark_mode") {
+        const current = appearanceMode ?? states?.appearance_mode ?? "light";
+        setAppearanceMode(await api.setAppearanceMode(NEXT_APPEARANCE[current]));
+      } else if (key === "system_screenshot") {
+        await api.openSystemScreenshot();
+      } else if (key === "desktop_hidden") await api.toggleHideDesktop();
       else if (key === "prevent_sleep") await api.togglePreventSleep();
       else if (key === "empty_trash") await api.emptyTrash();
       else if (key === "hide_dock") await api.toggleHideDock();
@@ -174,10 +240,17 @@ export default function App() {
         <span className="text-[10px] text-white/40">v{appVersion}</span>
       </div>
 
+      <PermissionBanner
+        state={permState}
+        onRefresh={refreshPermissions}
+        onAcknowledge={acknowledgePermissions}
+      />
+
       <ToggleGrid
         states={states}
         busyKey={busy}
         onToggle={onToggle}
+        appearanceMode={appearanceMode}
         statusOverrides={dnsStatus ? { flush_dns: dnsStatus } : undefined}
       />
       <ResourcePanel />
@@ -198,6 +271,9 @@ export default function App() {
           onCheckUpdate={onCheckUpdate}
           balanceVersion={balanceVersion}
           notice={notice}
+          permChecking={permChecking}
+          permissionSummary={permissionSummary}
+          onCheckPermissions={checkPermissions}
           onBalanceChanged={() => setBalanceVersion((v) => v + 1)}
           onClose={() => {
             setShowSettings(false);

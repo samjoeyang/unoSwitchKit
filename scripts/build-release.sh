@@ -10,9 +10,11 @@
 #   1) 钥匙串里存在「Developer ID Application」证书 → 用它签名；
 #      若同时配置了公证凭据（APPLE_CERTIFICATE 或 APPLE_ID+APPLE_PASSWORD+APPLE_TEAM_ID），
 #      Tauri 会自动完成 notarization + staple。
-#   2) 无证书 → 降级为 ad-hoc 签名（codesign -s -）：包行为一致、
-#      守护进程不会被系统拦截，但 Gatekeeper 会弹「未验证开发者」，
-#      用户需「右键 → 打开」（macOS 13+ 为 系统设置 → 隐私与安全性 → 仍要打开）。
+#   2) 无证书 → 降级为 ad-hoc 签名（codesign -s -）：本项目既定分发方式，
+#      Gatekeeper 会弹「未验证开发者」，macOS 15+ 只能走
+#      「系统设置 → 隐私与安全性 → 仍要打开」（已无「右键 → 打开」绕过）。
+#      每个新包 / 每次 OTA 后都要重做一次放行，且 TCC 隐私授权会静默失效：
+#      用户需 tccutil reset All com.switchkit.app 后重新授权，见 README「每次更新后需重新授权」。
 #
 # 产物：src-tauri/target/<target>/release/bundle/{macos,dmg}/
 set -euo pipefail
@@ -33,10 +35,12 @@ case "${1:-}" in
  esac
 
 # 两个切片必须共用同一部署目标：Info.plist 的 LSMinimumSystemVersion 由
-# tauri.conf.json 的 bundle.macOS.minimumSystemVersion 决定（10.14），
-# 若切片默认值更高（Intel 上 swiftc 默认当前 SDK，如 macOS 12），
-# 老系统会装上即崩——曾经就是 plist 写 10.13、Intel 切片实际要 12.0（swiftc 默认当前 SDK）。
-MACOS_MIN="10.14"
+# tauri.conf.json 的 bundle.macOS.minimumSystemVersion 决定（12.7.6），
+# 若切片默认值更高（Intel 上 swiftc 默认当前 SDK），老系统会装上即崩——
+# 曾经就是 plist 写 10.13、Intel 切片实际要 12.0（swiftc 默认当前 SDK）。
+# 注意 12.7.6 是三段版本号：本机实测 swiftc -target x86_64-apple-macosx12.7.6
+# 可编译，产物 LC_BUILD_VERSION.minos = 12.7.6；与 plist 值须完全一致。
+MACOS_MIN="12.7.6"
 
 # 产物名带上版本与架构，杜绝「同名的 x86_64 包被当成 universal 发出去」
 VERSION="$(python3 -c 'import json;print(json.load(open("src-tauri/tauri.conf.json"))["version"])' 2>/dev/null || echo "0.0.0")"
@@ -170,9 +174,10 @@ if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
   codesign --force --deep --sign - "$APP"
   echo "   已 ad-hoc 签名：$APP"
   echo ""
-  echo "   ⚠️ 此包未经 Apple 公证，分发时请附说明："
-  echo "      首次打开：右键 SwitchKit.app → 打开 → 再点「打开」"
-  echo "      （macOS 13+：系统设置 → 隐私与安全性 → 仍要打开）"
+  echo "   ⚠️ 此包为 ad-hoc 签名、未经 Apple 公证（项目既定分发方式）"
+  echo "      Release 说明请附 docs/构建指南.md §3.1 的固定段落："
+  echo "      首次打开/每次换包：系统设置 → 隐私与安全性 → 仍要打开（macOS 15+ 无右键绕过）"
+  echo "      每次换包后需：退出 App → tccutil reset All com.switchkit.app → 重开并逐项重新授权"
 else
   echo "   正式签名完成，验证结果："
   codesign --verify --deep --strict "$APP" && echo "   codesign verify: OK"
@@ -224,7 +229,7 @@ if [ "${DMG_OK:-0}" = 0 ]; then
   # 清掉旧命名的包，避免拿错（曾因统一叫 SwitchKit-adhoc.zip 误发 x86_64 包）
   rm -f "${BUNDLE_DIR}/macos/SwitchKit-adhoc.zip" "$ZIP"
   ( cd "${BUNDLE_DIR}/macos" && zip -r -y "$(basename "$ZIP")" "SwitchKit.app" )
-  echo "   分发 zip：${ZIP}（解压后为 SwitchKit.app，右键 → 打开）"
+  echo "   分发 zip：${ZIP}（解压后为 SwitchKit.app；macOS 15+ 请走 系统设置 → 仍要打开）"
 fi
 
 echo ""

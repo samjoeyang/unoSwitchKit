@@ -4,6 +4,40 @@
 
 ## [未发布]
 
+### 新增：三项零 TCC 功能（外观自动切换 / 全局快捷键 / 系统截图入口）
+
+本轮只落地评估中没有争议、不依赖隐私授权的部分；静默截屏、一键录音、一键录屏、媒体键等仍需讨论，暂缓。
+
+- **外观三态（浅 / 深 / 自动）**：`commands.rs` 新增 `get_appearance_mode` / `set_appearance_mode` / `cycle_appearance_mode`，先读 `AppleInterfaceStyleSwitchesAutomatically` 再读 `AppleInterfaceStyle`（本机 12.7.6 实测两键可共存，旧实现会把 Auto 下的深色误报为手动深色）。浅/深沿用 System Events AppleScript；自动只写系统偏好键并补发 `AppleInterfaceThemeChangedNotification`（CoreFoundation distributed center，尽力即时生效），由 macOS 按日出/日落或夜览日程切换，不申请定位、不常驻天文计算。面板按钮改为三态循环，另用 30 秒轻量轮询跟随系统自动切换。
+- **全局快捷键**：新增 `tauri-plugin-global-shortcut = "2"`（解析到 2.4.1 / global-hotkey 0.8.0），`rust-version` 1.77 → 1.90（官方插件最低要求）。新模块 `shortcuts.rs` 提供 9 个零新增权限动作的白名单、持久化绑定（`Settings.shortcut_bindings`）、启动后台恢复与逐项注册结果。只接受「修饰键 + 普通键」，媒体键 / 单键被排除（会落到 CGEventTap、需要输入监控类 TCC）；绑定冲突、被系统占用会逐条提示。注册/注销在 macOS 上由插件 dispatch 到主线程并同步等待，因此一律走 `spawn_blocking` 与启动后台线程，避免主线程死锁。
+- **系统截图入口**：`open_system_screenshot` 用 `/usr/bin/open -b com.apple.screenshot.launcher` 启动系统截图 App（12.7.6 实测 bundle id），带名称 / 路径兜底。**不 spawn `/usr/sbin/screencapture`**：该 CLI 带 `com.apple.private.tcc.check-allow-on-responsible-process`，TCC 会检查调用者，未授权时静默产出黑图。本应用不读取屏幕内容、不保存截图文件、不申请屏幕录制权限。
+- 前端：面板新增「系统截图」按钮与外观三态显示，设置页新增「日出日落自动切换」说明与 `ShortcutSection`（按键录制、显示 ⌘⇧S 格式、清除、冲突反馈）。
+- 文档：`README.md` 功能列表、权限表与「零新增权限」说明；`website/index.html` 功能卡（**线上站点走 gh-pages，需另跑 `deploy-pages.yml` 才生效**）。
+- 验证：`cargo check` 无警告、`cargo test` 20/20 通过（新增 3 个快捷键解析 / 白名单测试）、`npx tsc --noEmit` exit 0。未升版本号、未改功能权限声明（capabilities）、未 push。
+
+### 新增：权限自检与「换包后重新授权」引导
+
+- 背景：项目确定长期使用 ad-hoc 签名、不申请 Developer ID / 不做公证，并接受「每次换包重新授权」。ad-hoc 每次构建产生新 cdhash，TCC 把新包当作新 App，隐私授权静默失效且系统设置开关仍显示「开」、不会重新弹窗。
+- 新增 `src-tauri/src/permissions.rs`：用 `/usr/bin/codesign -dv --verbose=4` 读取当前可执行文件 CDHash，与 `app_config_dir()/permission-state.json` 中上次记录比对，判断「包是否被替换」。首次运行自动建档，因此即使从未点过「已完成重置」，之后的 OTA 也能被检测到；OTA `relaunch()` 后无需额外埋点即会触发提示。
+- 提供 5 个命令：被动自检（零副作用：`CGPreflightScreenCaptureAccess()` + 完全磁盘访问目录读取）、主动自检（AppleEvents 探测带 3 秒超时，避免授权弹窗卡死面板）、记录当前签名、复制 `tccutil reset All com.switchkit.app` 到剪贴板（`pbcopy`）、打开系统设置隐私面板。主动探测只在用户点击时执行，避免启动即弹窗。
+- 前端新增 `PermissionBanner`：换包或检测到失效项时在面板顶部显示，列出逐项状态（已授权 / 未生效 / 未检查），提供复制命令、打开系统设置、检查权限、已完成重置四个操作；设置页新增「权限自检」入口与结果摘要。
+
+### 文档：明确长期 ad-hoc 分发的授权成本
+
+- `README.md` 首启步骤改为「每个新包、每次在线更新都要重做」，权限表补自动化（System Events）与文件和文件夹，新增「每次更新后需重新授权」小节（含 `tccutil reset All com.switchkit.app` 完整流程）。
+- `docs/构建指南.md` §3.1 明确不申请 Developer ID / 不公证的既定决策，去掉过时的「右键 → 打开 / macOS 13+ 走系统设置」，新增 Release 说明固定段落；§4 / §5.1 / §6.6 同步修正，§6 标注「本项目不采用」。
+- `scripts/build-release.sh` 的签名注释、构建输出与 zip 提示同步更新。
+- 官网 `website/index.html` 同步：去掉两处「只需一次」，权限表补自动化（System Events）与文件和文件夹，新增「每次更新后需重新授权」说明与 `tccutil` 复制块。**线上站点走 gh-pages 分支，需另跑 `deploy-pages.yml` 才会生效**；本次未执行。
+- 未升版本号、未 push。
+
+### 工程：最低系统要求提升至 macOS 12.7.6
+
+- 统一最低系统版本为 `12.7.6`（Monterey），消除此前 `tauri.conf.json` 写 `10.14`、PRD 写「Ventura 13」、开发机为 12.7.6 的三方矛盾；开发机现在正好等于最低版本，本地可自测。
+- 同步修改：`src-tauri/tauri.conf.json`（`bundle.macOS.minimumSystemVersion`）、`scripts/build-release.sh`（`MACOS_MIN` 与 Swift 切片 target）、`.github/workflows/build.yml`（`MACOSX_DEPLOYMENT_TARGET`）、`README.md`、`docs/需求文档.md`、`docs/设计文档.md`、`docs/构建指南.md`、`website/index.html`。
+- 构建侧核实：Tauri 打包器把 `minimumSystemVersion` 字符串原样写入 Info.plist 的 `LSMinimumSystemVersion`，不解析不截断；本机 Xcode 14.2 / Swift 5.7.2 实测 `swiftc -target x86_64-apple-macosx12.7.6` 可编译，产物 `LC_BUILD_VERSION.minos = 12.7.6`，与脚本中的字符串硬校验一致。
+- 兼容性影响：版本精确到补丁号，**macOS 12.0–12.7.5 及更早系统不再受支持**；台前调度的 macOS 13+ 运行时判断必须保留（12.7.6 用户会走到该分支）。macOS 12 已停止接收 Apple 安全更新，建议用户尽量运行在受支持的系统版本上。
+- 本次只改构建配置与文档，未改功能代码、未升版本号。官网改动需单独跑 `deploy-pages.yml` 才会更新线上站点。
+
 ### 修复：内存数字口径与页大小
 
 - 「释放内存」的 before/after 改用与资源面板一致的 sysinfo 口径（active + wired + compressor + speculative，**不含** inactive 可回收缓存）。同一时刻不再出现「面板 8.9 GB / 日志 12.56 GB」这类相差数 GB 的数字。
@@ -11,6 +45,28 @@
 - `parse_memory()` 不再硬编码 4096 页大小，改从 `vm_stat` 首行读取（Apple Silicon 16384 / Intel 4096），并以 `sysctl -n hw.pagesize` 兜底。修复 aarch64 构建上释放日志数字只有真实值 1/4 的问题。
 - `free_mb` 不再重复累加 speculative（`free_count` 已包含它）。
 - 新增 vm_stat 解析、页大小换算与口径一致性的 Rust 单元测试。
+
+### 修复：面板「原生守护」再次不亮（启动竞态 + OTA 包未签名）
+
+**现象**：0.4.11 装机后，11-11 14:47 启动 App，底部「原生守护」一直灰；同一台机 16:59 重启 App 后立刻点亮。
+
+**日志证据**（`~/Library/Logs/switchkit-rust.log` + `switchkit-daemon.log`）
+
+- 14:47:56 / 14:47:57 两次 `try_spawn_daemon` 都是 `alive=true` 但 9876 在 ~1s 内未 listen；守护日志该时段完全空白，连 `=== SwitchKit sidecar launch ===` 都没有 → 进程卡在 Swift 第一行之前的 exec / 代码签名评估阶段，不是被系统拒绝后退出。
+- 16:59:29 同一路径、同一二进制 spawn 后 <1s 就绪 → 系统已完成首次评估并缓存。
+- `xattr -d com.apple.quarantine` 全部返回「属性本就不存在」，端口也无残留 → 排除 0.4.2 的隔离拦截、0.4.5 的探测误报、旧守护占端口这三类已修过的失效。
+
+**根因**：`spawn_sidecar()` 只在 setup 跑一次，就绪窗口固定 ~1s，失败即 kill 且整个 App 会话不再重试。任何一次偶发的首次执行评估变慢，都会让守护永久不亮，只能手动重启 App。历次修复各补了一个具体环节，但没有消除「一次性启动、无自愈」这个结构缺陷 —— 所以不是旧 bug 复活，是同一条单点链路被新诱因再次打断。
+- 加剧因素：CI 在 `codesign --force --deep --sign -` **之前**由 Tauri 生成 `.app.tar.gz`，OTA 落地的 `.app` 完全未签名。实测 `/Applications/SwitchKit.app` 与内嵌 `switchkit-daemon` 均为 `code object is not signed at all`，与项目既定 ad-hoc 策略不符；Intel 上首次 exec 会被系统策略评估拖慢，Apple Silicon 上未签名 Mach-O 会被 AMFI 直接拒绝。手动下载的 zip 在签名后打包，不受影响。
+
+**改动**
+
+- `src-tauri/src/main.rs`：就绪窗口 ~1s → ~9s（60 × 150ms，正常 <1s 立即返回）；spawn 移到后台线程，不阻塞面板出现；新增 `SPAWN_LOCK` 串行化启动、`start_sidecar_watchdog()` 每 5s 探 9876，连续两次失败且距上次 spawn ≥12s 自动重新拉起；`stop_sidecar_watchdog()` 在退出时停狗，避免清端口后又把守护拉起。
+- `src-tauri/src/commands.rs`：`shutdown_sidecar` 先停看门狗再清端口。
+- `.github/workflows/build.yml`：thin 两架构在 codesign 之后重打 `SwitchKit.app.tar.gz` 并用 `tauri signer sign` 重签 `.sig`；新增「嵌套守护未签名则拒绝产出 OTA 包」硬校验，保证 OTA 与 zip 一样带 ad-hoc 签名。
+- 前端状态点已有 5s 轮询，无需改动；自愈后最多约 20s 自动点亮，不必手动重启 App。
+
+**验证**：`cargo check`、`cargo test`（17 项全通过）、`npx tsc --noEmit` 均通过。未升版本号、未 commit、未 push；CI 改动需下次发版时实际跑一轮确认。
 
 ## [0.4.11] - 2026-11-09
 

@@ -1,8 +1,9 @@
 import { StatusDot } from "./StatusDot";
-import type { ToggleStates } from "../types";
+import type { AppearanceMode, ToggleStates } from "../types";
 
 export type ToggleKey =
   | "dark_mode"
+  | "system_screenshot"
   | "desktop_hidden"
   | "prevent_sleep"
   | "empty_trash"
@@ -28,8 +29,8 @@ interface Item {
 const ITEMS: Item[] = [
   {
     key: "dark_mode",
-    label: "深色模式",
-    status: (s) => (s.dark_mode ? "开" : "关"),
+    label: "外观",
+    status: (s) => (s.dark_mode ? "深色" : "浅色"),
     active: (s) => s.dark_mode,
   },
   {
@@ -106,12 +107,26 @@ const ITEMS: Item[] = [
     status: () => "点击刷新",
     active: () => false,
   },
+  {
+    key: "system_screenshot",
+    label: "系统截图",
+    status: () => "打开截图工具栏",
+    active: () => false,
+  },
 ];
+
+export const APPEARANCE_TEXT: Record<AppearanceMode, string> = {
+  light: "浅色 · 点按切深色",
+  dark: "深色 · 点按切自动",
+  auto: "自动 · 日出日落",
+};
 
 interface Props {
   states: ToggleStates | null;
   busyKey: string | null;
   onToggle: (key: ToggleKey) => void;
+  /** 外观三态，独立于全量状态轮询（系统自动切换时也能跟上） */
+  appearanceMode?: AppearanceMode | null;
   /** 覆盖某项的状态副标题（用于一次性操作反馈，如「已刷新」） */
   statusOverrides?: Partial<Record<ToggleKey, string>>;
 }
@@ -120,15 +135,26 @@ export function ToggleGrid({
   states,
   busyKey,
   onToggle,
+  appearanceMode,
   statusOverrides,
 }: Props) {
   const visible = states ? ITEMS.filter((it) => !it.hidden?.(states)) : ITEMS;
   return (
     <div className="grid grid-cols-2 gap-2">
       {visible.map((it) => {
+        const isAppearance = it.key === "dark_mode" && appearanceMode;
         const status =
-          statusOverrides?.[it.key] ?? (states ? it.status(states) : "—");
-        const active = states ? it.active(states) : false;
+          statusOverrides?.[it.key] ??
+          (isAppearance
+            ? APPEARANCE_TEXT[appearanceMode!]
+            : states
+              ? it.status(states)
+              : "—");
+        const active = isAppearance
+          ? appearanceMode !== "light"
+          : states
+            ? it.active(states)
+            : false;
         const busy = busyKey === it.key;
         return (
           <button

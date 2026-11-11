@@ -1,9 +1,50 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+/// 系统外观三态。Auto 由 macOS 自己按日出/日落或夜览日程切换，
+/// 本项目不读取定位、不算天文时间，也不常驻轮询。
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum AppearanceMode {
+    Light,
+    Dark,
+    Auto,
+}
+
+impl AppearanceMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AppearanceMode::Light => "light",
+            AppearanceMode::Dark => "dark",
+            AppearanceMode::Auto => "auto",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "light" => Some(AppearanceMode::Light),
+            "dark" => Some(AppearanceMode::Dark),
+            "auto" => Some(AppearanceMode::Auto),
+            _ => None,
+        }
+    }
+
+    /// 面板上点击一次「外观」后的下一态：浅 → 深 → 自动 → 浅。
+    pub fn cycle(self) -> Self {
+        match self {
+            AppearanceMode::Light => AppearanceMode::Dark,
+            AppearanceMode::Dark => AppearanceMode::Auto,
+            AppearanceMode::Auto => AppearanceMode::Light,
+        }
+    }
+}
 
 /// 面板打开时读取的全部开关真实状态。
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct ToggleStates {
     pub dark_mode: bool,
+    /// 外观三态（light / dark / auto）；auto 时 dark_mode 只反映当前生效外观。
+    pub appearance_mode: String,
     pub desktop_hidden: bool,
     pub prevent_sleep: bool,
     pub trash_count: u32,
@@ -184,6 +225,19 @@ pub struct Settings {
     /// 下载目录过期文件判定天数（修改时间早于该天数视为可清理），默认 30。
     #[serde(default = "default_downloads_expire_days")]
     pub downloads_expire_days: u32,
+    /// 全局快捷键绑定：动作 id → global-hotkey 字符串（如 "Command+Shift+KeyS"）。
+    /// 空 map 表示不注册任何快捷键；启动时由后台线程重新注册。
+    #[serde(default)]
+    pub shortcut_bindings: HashMap<String, String>,
+}
+
+/// 一条快捷键绑定的注册结果，用于设置页逐项反馈冲突。
+#[derive(Serialize, Clone)]
+pub struct ShortcutReport {
+    pub action: String,
+    pub shortcut: String,
+    pub ok: bool,
+    pub error: Option<String>,
 }
 
 fn default_auto_clean_interval() -> u32 {
@@ -263,7 +317,23 @@ pub struct UpdateConfig {
 
 #[cfg(test)]
 mod tests {
-    use super::Settings;
+    use super::{AppearanceMode, Settings};
+
+    /// 外观三态循环：浅 → 深 → 自动 → 浅，且字符串往返一致。
+    #[test]
+    fn appearance_mode_cycles_and_roundtrips() {
+        let seq = [
+            AppearanceMode::Light,
+            AppearanceMode::Dark,
+            AppearanceMode::Auto,
+            AppearanceMode::Light,
+        ];
+        for (i, mode) in seq.iter().take(3).enumerate() {
+            assert_eq!(mode.cycle(), seq[i + 1]);
+            assert_eq!(AppearanceMode::from_str_opt(mode.as_str()), Some(*mode));
+        }
+        assert_eq!(AppearanceMode::from_str_opt("nope"), None);
+    }
 
     /// 旧版配置里的 `deepseek_keys` 需能读入新的 `provider_keys`（provider 留空 → 视为 deepseek）。
     #[test]
