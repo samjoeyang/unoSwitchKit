@@ -2,7 +2,7 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
-## [未发布]
+## [0.4.12] - 2026-11-12
 
 ### 新增：三项零 TCC 功能（外观自动切换 / 全局快捷键 / 系统截图入口）
 
@@ -12,8 +12,8 @@
 - **全局快捷键**：新增 `tauri-plugin-global-shortcut = "2"`（解析到 2.4.1 / global-hotkey 0.8.0），`rust-version` 1.77 → 1.90（官方插件最低要求）。新模块 `shortcuts.rs` 提供 9 个零新增权限动作的白名单、持久化绑定（`Settings.shortcut_bindings`）、启动后台恢复与逐项注册结果。只接受「修饰键 + 普通键」，媒体键 / 单键被排除（会落到 CGEventTap、需要输入监控类 TCC）；绑定冲突、被系统占用会逐条提示。注册/注销在 macOS 上由插件 dispatch 到主线程并同步等待，因此一律走 `spawn_blocking` 与启动后台线程，避免主线程死锁。
 - **系统截图入口**：`open_system_screenshot` 用 `/usr/bin/open -b com.apple.screenshot.launcher` 启动系统截图 App（12.7.6 实测 bundle id），带名称 / 路径兜底。**不 spawn `/usr/sbin/screencapture`**：该 CLI 带 `com.apple.private.tcc.check-allow-on-responsible-process`，TCC 会检查调用者，未授权时静默产出黑图。本应用不读取屏幕内容、不保存截图文件、不申请屏幕录制权限。
 - 前端：面板新增「系统截图」按钮与外观三态显示，设置页新增「日出日落自动切换」说明与 `ShortcutSection`（按键录制、显示 ⌘⇧S 格式、清除、冲突反馈）。
-- 文档：`README.md` 功能列表、权限表与「零新增权限」说明；`website/index.html` 功能卡（**线上站点走 gh-pages，需另跑 `deploy-pages.yml` 才生效**）。
-- 验证：`cargo check` 无警告、`cargo test` 20/20 通过（新增 3 个快捷键解析 / 白名单测试）、`npx tsc --noEmit` exit 0。未升版本号、未改功能权限声明（capabilities）、未 push。
+- 文档：`README.md` 功能列表、权限表与「零新增权限」说明；`website/index.html` 功能卡（线上站点走 gh-pages 分支，由 `deploy-pages.yml` 单独发布）。
+- 验证：`cargo check` 无警告、`cargo test` 21/21 通过（新增 4 个快捷键解析 / 白名单与外观循环测试）、`npx tsc --noEmit` exit 0、`npm run build` 通过。未改功能权限声明（capabilities）。
 
 ### 新增：权限自检与「换包后重新授权」引导
 
@@ -27,8 +27,7 @@
 - `README.md` 首启步骤改为「每个新包、每次在线更新都要重做」，权限表补自动化（System Events）与文件和文件夹，新增「每次更新后需重新授权」小节（含 `tccutil reset All com.switchkit.app` 完整流程）。
 - `docs/构建指南.md` §3.1 明确不申请 Developer ID / 不公证的既定决策，去掉过时的「右键 → 打开 / macOS 13+ 走系统设置」，新增 Release 说明固定段落；§4 / §5.1 / §6.6 同步修正，§6 标注「本项目不采用」。
 - `scripts/build-release.sh` 的签名注释、构建输出与 zip 提示同步更新。
-- 官网 `website/index.html` 同步：去掉两处「只需一次」，权限表补自动化（System Events）与文件和文件夹，新增「每次更新后需重新授权」说明与 `tccutil` 复制块。**线上站点走 gh-pages 分支，需另跑 `deploy-pages.yml` 才会生效**；本次未执行。
-- 未升版本号、未 push。
+- 官网 `website/index.html` 同步：去掉两处「只需一次」，权限表补自动化（System Events）与文件和文件夹，新增「每次更新后需重新授权」说明与 `tccutil` 复制块。线上站点走 gh-pages 分支，由 `deploy-pages.yml` 发布。
 
 ### 工程：最低系统要求提升至 macOS 12.7.6
 
@@ -36,7 +35,7 @@
 - 同步修改：`src-tauri/tauri.conf.json`（`bundle.macOS.minimumSystemVersion`）、`scripts/build-release.sh`（`MACOS_MIN` 与 Swift 切片 target）、`.github/workflows/build.yml`（`MACOSX_DEPLOYMENT_TARGET`）、`README.md`、`docs/需求文档.md`、`docs/设计文档.md`、`docs/构建指南.md`、`website/index.html`。
 - 构建侧核实：Tauri 打包器把 `minimumSystemVersion` 字符串原样写入 Info.plist 的 `LSMinimumSystemVersion`，不解析不截断；本机 Xcode 14.2 / Swift 5.7.2 实测 `swiftc -target x86_64-apple-macosx12.7.6` 可编译，产物 `LC_BUILD_VERSION.minos = 12.7.6`，与脚本中的字符串硬校验一致。
 - 兼容性影响：版本精确到补丁号，**macOS 12.0–12.7.5 及更早系统不再受支持**；台前调度的 macOS 13+ 运行时判断必须保留（12.7.6 用户会走到该分支）。macOS 12 已停止接收 Apple 安全更新，建议用户尽量运行在受支持的系统版本上。
-- 本次只改构建配置与文档，未改功能代码、未升版本号。官网改动需单独跑 `deploy-pages.yml` 才会更新线上站点。
+- 本次只改构建配置与文档，未改功能代码。官网改动由 `deploy-pages.yml` 单独发布。
 
 ### 修复：内存数字口径与页大小
 
@@ -66,7 +65,7 @@
 - `.github/workflows/build.yml`：thin 两架构在 codesign 之后重打 `SwitchKit.app.tar.gz` 并用 `tauri signer sign` 重签 `.sig`；新增「嵌套守护未签名则拒绝产出 OTA 包」硬校验，保证 OTA 与 zip 一样带 ad-hoc 签名。
 - 前端状态点已有 5s 轮询，无需改动；自愈后最多约 20s 自动点亮，不必手动重启 App。
 
-**验证**：`cargo check`、`cargo test`（17 项全通过）、`npx tsc --noEmit` 均通过。未升版本号、未 commit、未 push；CI 改动需下次发版时实际跑一轮确认。
+**验证**：`cargo check`、`cargo test`（17 项全通过）、`npx tsc --noEmit` 均通过。`build.yml` 的 OTA 重签与嵌套守护硬校验在 0.4.12 发版时实跑确认。
 
 ## [0.4.11] - 2026-11-09
 
