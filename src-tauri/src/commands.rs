@@ -449,12 +449,16 @@ pub async fn toggle_dark_mode() -> Result<bool, String> {
     Ok(next == AppearanceMode::Dark)
 }
 
-/// 拉起系统截图工具栏（⌘⇧5 的同一个 App）。
+/// 拉起系统截图 / 录屏工具栏（⌘⇧5 的同一个 App）。
+///
+/// 该工具栏同时提供静态截图与屏幕录制两组按钮，一个入口覆盖两项功能。
+/// 系统 App 自带 com.apple.private.screencapture.allow 与
+/// com.apple.private.tcc.allow = [kTCCServiceScreenCapture]，采集/编码/保存全由它负责。
 ///
 /// 关键：必须用 LaunchServices 启动系统 App，不能 spawn /usr/sbin/screencapture。
 /// 本机实测该 CLI 带 com.apple.private.tcc.check-allow-on-responsible-process，
 /// TCC 检查的是调用者；从本 App spawn 会被要求屏幕录制权限，且未授权时静默产出黑图。
-/// 走 `open -b` 时采集由系统 App 负责，本应用零新增权限。
+/// 走 `open -b` 时采集由系统 App 负责，本应用零新增权限、不保存任何截图或录屏文件。
 #[tauri::command]
 pub async fn open_system_screenshot() -> Result<(), String> {
     if util::run("/usr/bin/open", &["-b", "com.apple.screenshot.launcher"]).is_ok() {
@@ -469,7 +473,7 @@ pub async fn open_system_screenshot() -> Result<(), String> {
         &["/System/Applications/Utilities/Screenshot.app"],
     )
     .map(|_| ())
-    .map_err(|e| format!("无法打开系统截图工具栏：{}", e))
+    .map_err(|e| format!("无法打开系统截图 / 录屏工具栏：{}", e))
 }
 
 #[tauri::command]
