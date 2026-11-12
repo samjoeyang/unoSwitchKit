@@ -42,6 +42,9 @@ export default function App() {
   const [appVersion, setAppVersion] = useState("0.4.2");
   // 权限自检：换包后由后端比对签名哈希，驱动顶部重新授权引导
   const [permState, setPermState] = useState<PermissionState | null>(null);
+  // 「本次不显示」只在当前进程内生效：不写盘、不进 permission-state.json，
+  // App 重启后 webview 重建，提醒自动恢复显示。
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const [permChecking, setPermChecking] = useState(false);
   const [permissionSummary, setPermissionSummary] = useState<string | null>(null);
 
@@ -92,6 +95,8 @@ export default function App() {
   }
   /// 主动检查：会尝试触发 AppleEvents 授权弹窗，仅在用户点击时执行。
   async function checkPermissions() {
+    // 用户主动检查权限时要看到结果，取消「本次不显示」，让顶部引导重新出现。
+    setBannerDismissed(false);
     setPermChecking(true);
     try {
       const s = await api.refreshPermissions();
@@ -253,6 +258,8 @@ export default function App() {
         state={permState}
         onRefresh={refreshPermissions}
         onAcknowledge={acknowledgePermissions}
+        dismissed={bannerDismissed}
+        onDismiss={() => setBannerDismissed(true)}
       />
 
       {reordering && (

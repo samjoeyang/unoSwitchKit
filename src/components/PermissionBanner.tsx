@@ -6,6 +6,9 @@ interface Props {
   state: PermissionState | null;
   onRefresh: () => Promise<void>;
   onAcknowledge: () => Promise<void>;
+  /// 本次运行内收起提醒；不持久化，App 重启后自动恢复显示。
+  dismissed: boolean;
+  onDismiss: () => void;
 }
 
 function statusDot(status: PermissionItem["status"]) {
@@ -22,12 +25,18 @@ function statusText(status: PermissionItem["status"]) {
 
 /// 换包或检测到权限失效时出现在面板顶部，把「重新授权」变成可操作流程。
 /// 显示条件完全由后端状态驱动：签名哈希变化 或 存在 required 且 denied 的项。
-export function PermissionBanner({ state, onRefresh, onAcknowledge }: Props) {
+export function PermissionBanner({
+  state,
+  onRefresh,
+  onAcknowledge,
+  dismissed,
+  onDismiss,
+}: Props) {
   const [expanded, setExpanded] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [tip, setTip] = useState<string | null>(null);
 
-  if (!state) return null;
+  if (!state || dismissed) return null;
   const denied = state.items.filter((i) => i.required && i.status === "denied");
   if (!state.app_changed && denied.length === 0) return null;
 
@@ -101,10 +110,22 @@ export function PermissionBanner({ state, onRefresh, onAcknowledge }: Props) {
               disabled={busy !== null}
               className={btn}
               onClick={() =>
-                run("ack", onAcknowledge, "已记录当前版本；若仍有红色项请继续授权")
+                run(
+                  "ack",
+                  onAcknowledge,
+                  "已记录当前签名；未生效项仍需手动授权，可点「本次不显示」暂时收起"
+                )
               }
             >
               已处理
+            </button>
+            <button
+              disabled={busy !== null}
+              className={btn}
+              title="仅本次运行隐藏，重启 App 后会再次显示"
+              onClick={onDismiss}
+            >
+              本次不显示
             </button>
           </div>
 
@@ -112,13 +133,18 @@ export function PermissionBanner({ state, onRefresh, onAcknowledge }: Props) {
             <div className="mt-1.5 text-[10px] leading-snug text-white/60">{tip}</div>
           )}
 
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="mt-2 text-[10px] text-white/45 transition hover:text-white/75"
-          >
-            {expanded ? "收起权限状态" : "查看权限状态"}（
-            {state.probed ? "已检查" : "未检查主动项"}）
-          </button>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              className="text-[10px] text-white/45 transition hover:text-white/75"
+            >
+              {expanded ? "收起权限状态" : "查看权限状态"}（
+              {state.probed ? "已检查" : "未检查主动项"}）
+            </button>
+            <span className="shrink-0 text-[9px] text-white/30">
+              重启 App 后再次提醒
+            </span>
+          </div>
 
           {expanded && (
             <div className="mt-1.5 divide-y divide-white/5 border-t border-white/10 pt-1">
