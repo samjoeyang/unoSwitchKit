@@ -449,7 +449,7 @@ pub async fn toggle_dark_mode() -> Result<bool, String> {
     Ok(next == AppearanceMode::Dark)
 }
 
-/// 拉起系统截图 / 录屏工具栏（⌘⇧5 的同一个 App）。
+/// 拉起截屏录屏工具栏（⌘⇧5 的同一个 App）。
 ///
 /// 该工具栏同时提供静态截图与屏幕录制两组按钮，一个入口覆盖两项功能。
 /// 系统 App 自带 com.apple.private.screencapture.allow 与
@@ -473,7 +473,7 @@ pub async fn open_system_screenshot() -> Result<(), String> {
         &["/System/Applications/Utilities/Screenshot.app"],
     )
     .map(|_| ())
-    .map_err(|e| format!("无法打开系统截图 / 录屏工具栏：{}", e))
+    .map_err(|e| format!("无法打开截屏录屏工具栏：{}", e))
 }
 
 #[tauri::command]

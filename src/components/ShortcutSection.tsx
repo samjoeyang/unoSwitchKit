@@ -6,7 +6,7 @@ import type { ShortcutReport } from "../types";
 const ACTIONS: { id: string; label: string }[] = [
   { id: "toggle_panel", label: "显示 / 隐藏面板" },
   { id: "cycle_appearance", label: "切换外观（浅/深/自动）" },
-  { id: "open_screenshot", label: "截图 / 录屏工具栏" },
+  { id: "open_screenshot", label: "截屏录屏工具栏" },
   { id: "lock_screen", label: "锁定屏幕" },
   { id: "clear_clipboard", label: "清空剪贴板" },
   { id: "screensaver", label: "启动屏幕保护" },

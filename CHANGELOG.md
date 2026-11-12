@@ -7,7 +7,8 @@
 ### 修正：系统截图入口同时覆盖录屏，UI 与文档文案对齐
 
 - 实测确认 `open -b com.apple.screenshot.launcher` 拉起的工具栏**同时含静态截图与屏幕录制两组按钮**（Apple 支持 102618；macOS 26 使用手册 mh26782 明列「捕捉整个屏幕 / 捕捉窗口 / 捕捉屏幕的一部分 / 录制整个屏幕 / 录制窗口 / 录制屏幕的一部分」）。本机 macOS 12.7.6 的 `Screenshot.app` 自带 `com.apple.private.screencapture.allow` 与 `com.apple.private.tcc.allow = [kTCCServiceScreenCapture]`，因此录屏同样零 TCC。
-- 面板按钮改为「截图 / 录屏」，快捷键动作标签改为「截图 / 录屏工具栏」；命令名 `open_system_screenshot` 与动作 id `open_screenshot` 保持不变，用户已保存的快捷键绑定不受影响。
+- 面板按钮与快捷键动作标签同步体现「截屏 + 录屏」双能力；命令名 `open_system_screenshot` 与动作 id `open_screenshot` 保持不变，用户已保存的快捷键绑定不受影响。
+- 文案定名：功能名统一为「截屏录屏」（面板按钮）/「截屏录屏工具栏」（快捷键动作与官网、README 描述）；内部开关 key `system_screenshot` 与上述命令名、动作 id 均不改，避免影响已持久化的绑定。
 - 评估修订：「一键录屏」的零权限入口已随 0.4.12 交付，无需另立批次；仅「跳过系统工具栏、按下即开始录制」的静默自采仍需屏幕录制 TCC 与跨 12–27 版本分支，暂缓。
 - README / 官网功能卡与版本说明同步（官网改动需另跑 `deploy-pages.yml`）。未升版本号。
 

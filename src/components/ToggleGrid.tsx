@@ -109,7 +109,7 @@ const ITEMS: Item[] = [
   },
   {
     key: "system_screenshot",
-    label: "截图 / 录屏",
+    label: "截屏录屏",
     status: () => "打开系统工具栏",
     active: () => false,
   },
