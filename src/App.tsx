@@ -9,6 +9,7 @@ import { StatusDot } from "./components/StatusDot";
 import { PermissionBanner } from "./components/PermissionBanner";
 import { api } from "./ipc";
 import { checkAndInstall } from "./update";
+import { useToggleOrder } from "./useToggleOrder";
 import { getVersion } from "@tauri-apps/api/app";
 import type { AppearanceMode, PermissionState, ToggleStates } from "./types";
 
@@ -29,6 +30,8 @@ export default function App() {
   const [updating, setUpdating] = useState(false);
   const [updateMsg, setUpdateMsg] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // 开关卡片排序编辑模式：开启后卡片只响应拖动，不触发开关动作
+  const [reordering, setReordering] = useState(false);
   // 余额账号变动版本号：设置页新增 / 余额区删除后递增，驱动双方同步
   const [balanceVersion, setBalanceVersion] = useState(0);
   // 设置项操作提示（alert 在 WKWebView 中被禁用，改用面板内提示）
@@ -41,6 +44,12 @@ export default function App() {
   const [permState, setPermState] = useState<PermissionState | null>(null);
   const [permChecking, setPermChecking] = useState(false);
   const [permissionSummary, setPermissionSummary] = useState<string | null>(null);
+
+  const {
+    order: toggleOrder,
+    commit: commitToggleOrder,
+    reset: resetToggleOrder,
+  } = useToggleOrder();
 
   async function refresh() {
     try {
@@ -246,12 +255,27 @@ export default function App() {
         onAcknowledge={acknowledgePermissions}
       />
 
+      {reordering && (
+        <div className="mb-2 flex items-center justify-between rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] text-indigo-100">
+          <span>拖动卡片调整顺序，自动保存</span>
+          <button
+            onClick={() => void resetToggleOrder()}
+            className="rounded px-1.5 py-0.5 text-indigo-200/80 transition hover:bg-white/10"
+          >
+            恢复默认
+          </button>
+        </div>
+      )}
+
       <ToggleGrid
         states={states}
         busyKey={busy}
         onToggle={onToggle}
         appearanceMode={appearanceMode}
         statusOverrides={dnsStatus ? { flush_dns: dnsStatus } : undefined}
+        editMode={reordering}
+        order={toggleOrder}
+        onReorder={(next) => void commitToggleOrder(next)}
       />
       <ResourcePanel />
       <CleanupPanel />
@@ -296,6 +320,17 @@ export default function App() {
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
             设置
+          </button>
+          <button
+            onClick={() => setReordering((v) => !v)}
+            className={
+              "flex items-center gap-1 rounded px-2 py-0.5 transition hover:bg-white/10 " +
+              (reordering
+                ? "bg-indigo-500/25 text-indigo-100"
+                : "text-white/60 hover:text-white/90")
+            }
+          >
+            {reordering ? "完成排序" : "排序"}
           </button>
           <span className="flex items-center gap-1.5">
             <StatusDot on={sidecar === true} /> 原生守护
