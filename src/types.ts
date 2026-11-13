@@ -174,8 +174,6 @@ export interface PermissionItem {
   key: string;
   label: string;
   status: PermissionStatus;
-  /// 当前版本是否实际使用该权限；false 为预留项，不参与告警
-  required: boolean;
   detail: string;
   /// 对应的 tccutil service 名
   service: string;

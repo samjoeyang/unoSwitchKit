@@ -101,7 +101,7 @@ export default function App() {
     try {
       const s = await api.refreshPermissions();
       setPermState(s);
-      const bad = s.items.filter((i) => i.required && i.status === "denied");
+      const bad = s.items.filter((i) => i.status === "denied");
       setPermissionSummary(
         bad.length
           ? `发现 ${bad.length} 项未生效，详见面板顶部提示`

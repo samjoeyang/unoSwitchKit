@@ -24,7 +24,7 @@ function statusText(status: PermissionItem["status"]) {
 }
 
 /// 换包或检测到权限失效时出现在面板顶部，把「重新授权」变成可操作流程。
-/// 显示条件完全由后端状态驱动：签名哈希变化 或 存在 required 且 denied 的项。
+/// 显示条件完全由后端状态驱动：签名哈希变化 或 存在未生效的权限项。
 export function PermissionBanner({
   state,
   onRefresh,
@@ -37,7 +37,7 @@ export function PermissionBanner({
   const [tip, setTip] = useState<string | null>(null);
 
   if (!state || dismissed) return null;
-  const denied = state.items.filter((i) => i.required && i.status === "denied");
+  const denied = state.items.filter((i) => i.status === "denied");
   if (!state.app_changed && denied.length === 0) return null;
 
   async function run(key: string, fn: () => Promise<unknown>, ok: string) {

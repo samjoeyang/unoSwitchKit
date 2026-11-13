@@ -12,7 +12,7 @@
 //! 2. 提供逐项权限自检、一键复制 `tccutil reset` 命令、打开系统设置的入口，
 //!    把「用户不知道该做什么」变成可操作的流程。
 //!
-//! 注意：探针分两类。无副作用探针（CGPreflight / 完全磁盘访问目录）可在
+//! 注意：探针分两类。无副作用探针（完全磁盘访问目录读取）可在
 //! 启动时跑；AppleEvents 探针会触发系统授权弹窗，只在用户主动点「检查权限」
 //! 时执行，并带超时，避免面板卡死。
 
@@ -33,21 +33,12 @@ const PRIVACY_PANE: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Automation";
 const PRIVACY_FALLBACK: &str = "x-apple.systempreferences:com.apple.preference.security";
 
-// Apple 官方推荐的屏幕录制预检（macOS 11+ 才有实际实现，本项目基线 12.7.6）。
-// 只查询、不申请权限，不会触发弹窗。
-#[link(name = "CoreGraphics", kind = "framework")]
-extern "C" {
-    fn CGPreflightScreenCaptureAccess() -> bool;
-}
-
 /// status: "granted" | "denied" | "unknown"
 #[derive(Serialize, Clone)]
 pub struct PermissionItem {
     pub key: String,
     pub label: String,
     pub status: String,
-    /// 当前版本是否实际使用该权限；false 表示预留项，不参与告警。
-    pub required: bool,
     pub detail: String,
     /// 对应的 tccutil service 名（大小写敏感）。
     pub service: String,
@@ -125,18 +116,11 @@ fn current_cdhash() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn item(
-    key: &str,
-    label: &str,
-    required: bool,
-    service: &str,
-    detail: &str,
-) -> PermissionItem {
+fn item(key: &str, label: &str, service: &str, detail: &str) -> PermissionItem {
     PermissionItem {
         key: key.to_string(),
         label: label.to_string(),
         status: "unknown".to_string(),
-        required,
         detail: detail.to_string(),
         service: service.to_string(),
     }
@@ -147,44 +131,32 @@ fn base_items() -> Vec<PermissionItem> {
         item(
             "automation_finder",
             "自动化（Finder）",
-            true,
             "AppleEvents",
             "清空废纸篓、废纸篓计数；点「检查权限」时会触发一次系统授权弹窗",
         ),
         item(
             "automation_system_events",
             "自动化（System Events）",
-            true,
             "AppleEvents",
             "深色模式切换、屏幕清洁、关闭所有应用",
         ),
         item(
             "full_disk_access",
             "完全磁盘访问",
-            true,
             "SystemPolicyAllFiles",
             "清理 Safari / Mail 等受 TCC 保护的缓存；该权限不自动弹窗，需在系统设置里手动添加",
         ),
         item(
             "files_folders",
             "文件和文件夹（桌面 / 文稿 / 下载）",
-            true,
             "SystemPolicyDesktopFolder",
             "大文件扫描、应用占用统计；由系统在实际访问时弹窗，不做主动探测以免面板卡住",
         ),
         item(
             "bluetooth",
             "蓝牙",
-            true,
             "BluetoothAlways",
             "设备列表 / 连接 / 断开；由 Swift 守护在首次扫描时弹窗",
-        ),
-        item(
-            "screen_capture",
-            "屏幕录制（预留）",
-            false,
-            "ScreenCapture",
-            "当前版本未使用；后续采集类功能会用到。CGPreflight 在刚授权后可能返回旧值，必要时重启 App",
         ),
     ]
 }
@@ -220,18 +192,8 @@ fn probe_full_disk_access() -> String {
 /// 无副作用探针，可在启动时执行。
 fn passive_probe(items: &mut [PermissionItem]) {
     for it in items.iter_mut() {
-        match it.key.as_str() {
-            "screen_capture" => {
-                // CGPreflightScreenCaptureAccess 只查询不申请，且 11+ 可用。
-                it.status = if unsafe { CGPreflightScreenCaptureAccess() } {
-                    "granted"
-                } else {
-                    "denied"
-                }
-                .to_string();
-            }
-            "full_disk_access" => it.status = probe_full_disk_access(),
-            _ => {}
+        if it.key == "full_disk_access" {
+            it.status = probe_full_disk_access();
         }
     }
 }
