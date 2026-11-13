@@ -314,11 +314,12 @@ export default function App() {
       )}
 
       <div className="mt-3 flex items-center justify-between border-t border-white/10 pt-2">
-        <div className="flex items-center gap-3 text-[11px] text-white/50">
+        {/* 「设置」区块靠左：设置 / 排序 / 退出；守护状态独立靠右 */}
+        <div className="flex items-center gap-1 rounded-lg bg-white/5 p-0.5 text-[11px]">
           <button
             onClick={() => setShowSettings((v) => !v)}
             className={
-              "flex items-center gap-1 rounded px-2 py-0.5 transition hover:bg-white/10 " +
+              "flex items-center gap-1 rounded-md px-2 py-0.5 transition hover:bg-white/10 " +
               (showSettings ? "bg-white/10 text-white/85" : "text-white/60 hover:text-white/90")
             }
           >
@@ -331,7 +332,7 @@ export default function App() {
           <button
             onClick={() => setReordering((v) => !v)}
             className={
-              "flex items-center gap-1 rounded px-2 py-0.5 transition hover:bg-white/10 " +
+              "rounded-md px-2 py-0.5 transition hover:bg-white/10 " +
               (reordering
                 ? "bg-indigo-500/25 text-indigo-100"
                 : "text-white/60 hover:text-white/90")
@@ -339,22 +340,22 @@ export default function App() {
           >
             {reordering ? "完成排序" : "排序"}
           </button>
-          <span className="flex items-center gap-1.5">
-            <StatusDot on={sidecar === true} /> 原生守护
-          </span>
+          <button
+            onClick={async () => {
+              try {
+                await api.quitApp();
+              } catch {
+                /* ignore */
+              }
+            }}
+            className="rounded-md px-2 py-0.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
+          >
+            退出
+          </button>
         </div>
-        <button
-          onClick={async () => {
-            try {
-              await api.quitApp();
-            } catch {
-              /* ignore */
-            }
-          }}
-          className="text-[11px] text-white/50 transition hover:text-white/80"
-        >
-          退出
-        </button>
+        <span className="flex items-center gap-1.5 text-[11px] text-white/50">
+          <StatusDot on={sidecar === true} /> 原生守护
+        </span>
       </div>
     </div>
   );
