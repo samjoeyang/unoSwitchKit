@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../ipc";
 import { KeyForm } from "./KeyForm";
 import { ShortcutSection } from "./ShortcutSection";
+import { AuthSection } from "./AuthSection";
 
 interface Props {
   version: string;
@@ -92,6 +93,9 @@ export function SettingsSection({
       </div>
 
       <div className="mt-1 divide-y divide-white/5">
+        {/* 账号登录（登录层功能总入口） */}
+        <AuthSection />
+
         {/* 开机自启 */}
         <div className="flex items-center justify-between py-2">
           <div>

@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod auth;
 mod balance;
 mod daemon_log;
 mod cleanup;
@@ -742,12 +743,22 @@ fn main() {
     let mut builder = tauri::Builder::default()
         // 单实例：launchd 拉起或手动双开时，新进程立即退出并唤起已有面板，
         // 避免「开机自启后菜单栏出现两个图标」。
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // deep-link 集成：登录回调经新进程传入时转给 auth 模块；
+            // 同时 plugin 也会触发 on_open_url，重复 URL 由一次性通道自动忽略。
+            for arg in &argv {
+                // 兼容带/不带尾斜杠的回调形态，统一交给 auth 做严格判定
+                if arg.starts_with("unoswitchkit://callback") {
+                    crate::auth::handle_callback_url(arg.clone());
+                }
+            }
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.show();
                 let _ = w.set_focus();
             }
         }))
+        // 登录回调：unoswitchkit://callback/?code=&state= 唤醒等待中的 auth_login
+        .plugin(tauri_plugin_deep_link::init())
         // 全局快捷键：Rust 侧注册（不经前端 IPC），只在后台线程调用注册/注销，
         // 因为插件在 macOS 上会 dispatch 到主线程并同步等待。
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -756,6 +767,14 @@ fn main() {
             let _ = app
                 .handle()
                 .set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            // OAuth 登录回调（unoswitchkit://callback/...）。
+            use tauri_plugin_deep_link::DeepLinkExt;
+            let _ = app.deep_link().on_open_url(|event| {
+                for url in event.urls() {
+                    crate::auth::handle_callback_url(url.to_string());
+                }
+            });
 
             // 无边框、置顶、透明面板窗口，默认隐藏，点击托盘时弹出
             let window = tauri::WebviewWindowBuilder::new(
@@ -795,6 +814,16 @@ fn main() {
             // 最坏 9s，不能让它阻塞面板出现；看门狗在 App 生命周期内持续兜底。
             start_sidecar_watchdog();
             std::thread::spawn(|| spawn_sidecar("setup"));
+
+            // 登录令牌续期：后台线程，启动后每 5 分钟静默刷新过期会话。
+            // is_logged_in 保持纯本地判定（零延迟），不在此处阻塞命令线程。
+            {
+                let handle = app.handle().clone();
+                std::thread::spawn(move || loop {
+                    std::thread::sleep(std::time::Duration::from_secs(300));
+                    crate::auth::refresh_if_needed(&handle);
+                });
+            }
 
             // 自动清理定时器：后台线程，启动 ~60s 后首检，之后每小时检查一次。
             // 仅清理 safe 级项；周期与开关来自持久化设置。
@@ -866,6 +895,10 @@ fn main() {
             commands::bt_disconnect,
             commands::quit_app,
             commands::get_update_config,
+            auth::auth_status,
+            auth::auth_login,
+            auth::auth_login_cancel,
+            auth::auth_logout,
             permissions::get_permission_state,
             permissions::refresh_permissions,
             permissions::acknowledge_permission_change,

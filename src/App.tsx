@@ -10,6 +10,8 @@ import { PermissionBanner } from "./components/PermissionBanner";
 import { api } from "./ipc";
 import { checkAndInstall } from "./update";
 import { useToggleOrder } from "./useToggleOrder";
+import { loadAuth } from "./authStore";
+import { gateFrontend, setRequireLoginHandler } from "./authGate";
 import { getVersion } from "@tauri-apps/api/app";
 import type { AppearanceMode, PermissionState, ToggleStates } from "./types";
 
@@ -47,6 +49,7 @@ export default function App() {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const [permChecking, setPermChecking] = useState(false);
   const [permissionSummary, setPermissionSummary] = useState<string | null>(null);
+  // 登录态由 authStore 全局订阅，Rust 是门控权威，前端仅用于 UI 展示与引导
 
   const {
     order: toggleOrder,
@@ -127,6 +130,16 @@ export default function App() {
     loadSidecar();
     loadUpdateConfig();
     loadPermissionState();
+    loadAuth();
+    // 任意面板触发登录层功能时：打开设置面板并滚到登录区
+    setRequireLoginHandler(() => {
+      setShowSettings(true);
+      setNotice("该功能需要登录，请在「账号」处登录");
+      // 设置面板自身有 60/260ms 两次贴底滚动，这里放到其后，避免被覆盖
+      window.setTimeout(() => {
+        document.getElementById("auth-section")?.scrollIntoView({ block: "nearest" });
+      }, 340);
+    });
     getVersion().then(setAppVersion).catch(() => {});
     const t = setInterval(loadSidecar, 5000);
     // 自动外观由系统切换（可能延迟到闲置时），面板常开时用轻量命令跟上，
@@ -175,6 +188,9 @@ export default function App() {
   }, [showSettings]);
 
   async function onToggle(key: ToggleKey) {
+    // 「刷新 DNS」属登录层功能：未登录时引导到设置登录入口。
+    // 外观/隐藏桌面等免费开关不受影响。
+    if (key === "flush_dns" && !gateFrontend()) return;
     setBusy(key);
     try {
       if (key === "dark_mode") {

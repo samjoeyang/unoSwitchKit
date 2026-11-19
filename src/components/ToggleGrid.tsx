@@ -1,5 +1,6 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { StatusDot } from "./StatusDot";
+import { LockBadge } from "./LockBadge";
 import type { AppearanceMode, ToggleStates } from "../types";
 
 export type ToggleKey =
@@ -25,7 +26,12 @@ interface Item {
   active: (s: ToggleStates) => boolean;
   /** 不可见条件（返回 true 则隐藏该项） */
   hidden?: (s: ToggleStates) => boolean;
+  /** 登录层功能：未登录时显示锁标（点击仍会引导登录） */
+  gated?: boolean;
 }
+
+/// 登录层开关 key 集合（与 Rust 命令门控一致）。
+export const GATED_TOGGLES = new Set<ToggleKey>(["flush_dns"]);
 
 const ITEMS: Item[] = [
   {
@@ -289,8 +295,9 @@ export function ToggleGrid({
             }
           >
             <div className="flex w-full items-center justify-between">
-              <span className="text-[13px] font-medium text-white/90">
+              <span className="flex items-center gap-1 text-[13px] font-medium text-white/90">
                 {it.label}
+                {GATED_TOGGLES.has(it.key) && <LockBadge />}
               </span>
               {editMode ? (
                 <GripIcon active={dragging} />

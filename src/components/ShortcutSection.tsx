@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../ipc";
+import { gateFrontend } from "../authGate";
 import type { ShortcutReport } from "../types";
 
 /// 必须与后端 src-tauri/src/shortcuts.rs 的 ACTION_IDS 顺序一致。
@@ -81,6 +82,7 @@ export function ShortcutSection() {
   }, []);
 
   async function commit(next: Record<string, string>) {
+    if (!gateFrontend()) return;
     setSaving(true);
     try {
       const reports: ShortcutReport[] = await api.setShortcutBindings(next);

@@ -17,6 +17,7 @@ import type {
   ToggleStates,
   TrashItem,
   UpdateConfig,
+  AuthStatus,
 } from "./types";
 
 export const api = {
@@ -67,6 +68,10 @@ export const api = {
   btDisconnect: (address: string) => invoke<boolean>("bt_disconnect", { address }),
   quitApp: () => invoke<void>("quit_app"),
   getUpdateConfig: () => invoke<UpdateConfig>("get_update_config"),
+  authStatus: () => invoke<AuthStatus>("auth_status"),
+  authLogin: () => invoke<void>("auth_login"),
+  authLoginCancel: () => invoke<void>("auth_login_cancel"),
+  authLogout: () => invoke<void>("auth_logout"),
   getPermissionState: () => invoke<PermissionState>("get_permission_state"),
   refreshPermissions: () => invoke<PermissionState>("refresh_permissions"),
   acknowledgePermissionChange: () =>

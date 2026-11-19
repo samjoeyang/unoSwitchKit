@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { StatusDot } from "./StatusDot";
 import { KeyForm } from "./KeyForm";
+import { LockBadge } from "./LockBadge";
 import { api } from "../ipc";
+import { gateFrontend } from "../authGate";
 import { providerName } from "../providers";
 import type { AccountBalance, ProviderKey } from "../types";
 
@@ -83,6 +85,7 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
   }, [keysKey, keys.length, refreshBalances]);
 
   async function removeKey(id: string) {
+    if (!gateFrontend()) return;
     try {
       const s = await api.getSettings();
       s.provider_keys = (s.provider_keys ?? []).filter((k) => k.id !== id);
@@ -100,7 +103,9 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
   return (
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium text-white/90">模型余额</span>
+        <span className="flex items-center gap-1 text-[13px] font-medium text-white/90">
+          模型余额 <LockBadge />
+        </span>
         <div className="flex items-center gap-3 text-[10px]">
           <button
             onClick={refreshBalances}

@@ -11,6 +11,15 @@ use crate::util;
 use crate::AppState;
 use crate::models::*;
 
+/// 功能门控：登录层命令在 Rust 侧统一检查登录态（前端判断不可信）。
+fn require_login(app: &AppHandle) -> Result<(), String> {
+    if crate::auth::is_logged_in(app) {
+        Ok(())
+    } else {
+        Err(crate::auth::require_login())
+    }
+}
+
 // ---------------- 状态读取 ----------------
 
 fn is_dark_mode() -> bool {
@@ -604,7 +613,8 @@ pub async fn bt_devices() -> Result<Vec<BtDevice>, String> {
 
 /// 一键连接（守护侧轮询等待，最长 10s）。
 #[tauri::command]
-pub async fn bt_connect(address: String) -> Result<bool, String> {
+pub async fn bt_connect(app: AppHandle, address: String) -> Result<bool, String> {
+    require_login(&app)?;
     let v = sidecar_call(
         json!({ "cmd": "bt:connect", "address": address }),
         500,
@@ -615,7 +625,8 @@ pub async fn bt_connect(address: String) -> Result<bool, String> {
 
 /// 断开连接。
 #[tauri::command]
-pub async fn bt_disconnect(address: String) -> Result<bool, String> {
+pub async fn bt_disconnect(app: AppHandle, address: String) -> Result<bool, String> {
+    require_login(&app)?;
     let v = sidecar_call(
         json!({ "cmd": "bt:disconnect", "address": address }),
         500,
@@ -700,7 +711,8 @@ end tell"#,
 }
 
 #[tauri::command]
-pub async fn release_memory() -> Result<MemoryComparison, String> {
+pub async fn release_memory(app: AppHandle) -> Result<MemoryComparison, String> {
+    require_login(&app)?;
     let before = parse_memory()?;
     crate::privilege::run_as_root("purge")?;
     let after = parse_memory()?;
@@ -717,7 +729,8 @@ pub async fn get_system_stats(state: State<'_, AppState>) -> Result<SystemStats,
 }
 
 #[tauri::command]
-pub async fn flush_dns() -> Result<(), String> {
+pub async fn flush_dns(app: AppHandle) -> Result<(), String> {
+    require_login(&app)?;
     crate::privilege::run_as_root("dscacheutil -flushcache; killall -HUP mDNSResponder")?;
     Ok(())
 }
@@ -729,14 +742,15 @@ pub async fn scan_cleanup(app: AppHandle) -> CleanPreview {
 }
 
 #[tauri::command]
-pub async fn clean_selected(app: AppHandle, ids: Vec<String>) -> CleanResult {
+pub async fn clean_selected(app: AppHandle, ids: Vec<String>) -> Result<CleanResult, String> {
+    require_login(&app)?;
     let s = crate::store::load_settings(&app);
-    crate::cleanup::clean(
+    Ok(crate::cleanup::clean(
         &ids,
         &s.cache_whitelist_extra,
         &s.exclude_paths,
         s.downloads_expire_days,
-    )
+    ))
 }
 
 #[tauri::command]
@@ -757,7 +771,8 @@ pub async fn large_files(threshold_mb: u64) -> Vec<LargeFile> {
 
 /// 将任意位于主目录内的路径移入废纸篓（用于大文件等定向清理）。
 #[tauri::command]
-pub async fn trash_path(path: String) -> Result<String, String> {
+pub async fn trash_path(app: AppHandle, path: String) -> Result<String, String> {
+    require_login(&app)?;
     crate::cleanup::trash_path(&path)
 }
 
@@ -769,20 +784,25 @@ pub async fn list_trash_items() -> Vec<TrashItem> {
 
 /// 从废纸篓恢复某项回原路径（覆盖前校验原路径不存在）。
 #[tauri::command]
-pub async fn restore_trash_item(trashed_path: String) -> Result<(), String> {
+pub async fn restore_trash_item(app: AppHandle, trashed_path: String) -> Result<(), String> {
+    require_login(&app)?;
     crate::cleanup::restore_trash_item(&trashed_path)
 }
 
 /// 清空本应用移入废纸篓的所有项（仅删 `switchkit-` 前缀，不动系统其它废纸篓文件）。
 #[tauri::command]
-pub async fn empty_switchkit_trash() -> u32 {
-    crate::cleanup::empty_switchkit_trash()
+pub async fn empty_switchkit_trash(app: AppHandle) -> Result<u32, String> {
+    require_login(&app)?;
+    Ok(crate::cleanup::empty_switchkit_trash())
 }
 
 /// 查询所有已配置 Key 的余额（无 Key 时返回空列表）。
 /// curl 为阻塞调用，放到 blocking 线程池，避免占用 async runtime 工作线程。
 #[tauri::command]
 pub async fn get_balances(app: AppHandle) -> Vec<AccountBalance> {
+    if !crate::auth::is_logged_in(&app) {
+        return Vec::new();
+    }
     let s = crate::store::load_settings(&app);
     let keys = s.provider_keys;
     let proxy = s.http_proxy;
@@ -803,6 +823,19 @@ pub async fn get_settings(app: AppHandle) -> Settings {
 
 #[tauri::command]
 pub async fn save_settings(app: AppHandle, settings: Settings) -> Result<(), String> {
+    // 字段级门控：排序/下载天数等基础设置免费可用；
+    // 余额 Key、代理、自动清理、快捷键绑定属登录层，未登录时禁止写入。
+    let protected_changed = {
+        let old = crate::store::load_settings(&app);
+        json!(settings.provider_keys) != json!(old.provider_keys)
+            || settings.http_proxy != old.http_proxy
+            || settings.auto_clean_enabled != old.auto_clean_enabled
+            || settings.auto_clean_interval_days != old.auto_clean_interval_days
+            || json!(settings.shortcut_bindings) != json!(old.shortcut_bindings)
+    };
+    if protected_changed && !crate::auth::is_logged_in(&app) {
+        return Err(crate::auth::require_login());
+    }
     crate::store::save_settings(&app, &settings)
 }
 
@@ -877,6 +910,7 @@ pub async fn set_shortcut_bindings(
     app: AppHandle,
     bindings: HashMap<String, String>,
 ) -> Result<Vec<ShortcutReport>, String> {
+    require_login(&app)?;
     let mut s = crate::store::load_settings(&app);
     s.shortcut_bindings = bindings.clone();
     crate::store::save_settings(&app, &s)?;

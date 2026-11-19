@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { StatusDot } from "./StatusDot";
+import { LockBadge } from "./LockBadge";
 import { api } from "../ipc";
+import { gateFrontend } from "../authGate";
 import type { BtDevice } from "../types";
 
 /// 蓝牙设备区：列出已配对设备，一键连接 / 断开（系统框架 IOBluetooth，经 Swift 守护）。
@@ -32,6 +34,7 @@ export function BluetoothSection() {
   }, [refresh]);
 
   async function act(d: BtDevice) {
+    if (!gateFrontend()) return;
     setBusyAddr(d.address);
     try {
       if (d.connected) await api.btDisconnect(d.address);
@@ -52,7 +55,9 @@ export function BluetoothSection() {
   return (
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium text-white/90">蓝牙设备</span>
+        <span className="flex items-center gap-1 text-[13px] font-medium text-white/90">
+          蓝牙设备 <LockBadge />
+        </span>
         <span className="text-[10px] text-white/40">
           {devices.filter((d) => d.connected).length}/{devices.length} 已连接
         </span>

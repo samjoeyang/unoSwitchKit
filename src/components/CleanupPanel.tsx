@@ -10,6 +10,8 @@ import type {
   TrashItem,
 } from "../types";
 import { api } from "../ipc";
+import { gateFrontend } from "../authGate";
+import { LockBadge } from "./LockBadge";
 
 function fmtBytes(b: number): string {
   if (b > 1024 * 1024 * 1024) return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
@@ -153,6 +155,7 @@ export function CleanupPanel() {
   }
 
   async function doClean() {
+    if (!gateFrontend()) return;
     if (cleaning || busy === "scan") return;
     if (selected.size === 0) {
       setMsg("请先勾选要清理的项");
@@ -222,6 +225,7 @@ export function CleanupPanel() {
   }, [tab]);
 
   async function deleteLarge(f: LargeFile) {
+    if (!gateFrontend()) return;
     if (pendingLarge !== f.id) {
       setPendingLarge(f.id);
       return;
@@ -240,6 +244,7 @@ export function CleanupPanel() {
   }
 
   async function saveSchedule(patch: Partial<Settings>) {
+    if (!gateFrontend()) return;
     if (!settings) return;
     setSchedBusy(true);
     try {
@@ -272,6 +277,7 @@ export function CleanupPanel() {
   }, [tab]);
 
   async function restoreTrash(t: TrashItem) {
+    if (!gateFrontend()) return;
     setTrashBusy(true);
     try {
       await api.restoreTrashItem(t.trashed_path);
@@ -285,6 +291,7 @@ export function CleanupPanel() {
   }
 
   async function emptyTrashItems() {
+    if (!gateFrontend()) return;
     setTrashBusy(true);
     try {
       const n = await api.emptySwitchkitTrash();
@@ -345,7 +352,9 @@ export function CleanupPanel() {
   return (
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium text-white/90">清理无用文件</span>
+        <span className="flex items-center gap-1 text-[13px] font-medium text-white/90">
+          清理无用文件 <LockBadge />
+        </span>
         <div className="flex gap-1">
           {tabs.map((t) => (
             <button

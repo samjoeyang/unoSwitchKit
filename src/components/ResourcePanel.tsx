@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { SystemStats } from "../types";
 import { api } from "../ipc";
+import { gateFrontend } from "../authGate";
+import { LockBadge } from "./LockBadge";
 
 function fmtMB(mb: number) {
   return `${(mb / 1024).toFixed(2)} GB`;
@@ -87,6 +89,7 @@ export function ResourcePanel() {
   }, []);
 
   async function release() {
+    if (!gateFrontend()) return;
     setBusy(true);
     setMsg("");
     try {
@@ -133,13 +136,16 @@ export function ResourcePanel() {
         action={
           <>
             <div className="flex justify-end">
-              <button
-                onClick={release}
-                disabled={busy}
-                className="rounded-lg border border-white/10 bg-indigo-500/15 px-2.5 py-1 text-[11px] font-medium text-indigo-100 hover:bg-indigo-500/25 disabled:opacity-50"
-              >
-                {busy ? "释放中…" : "释放内存"}
-              </button>
+              <div className="flex items-center justify-end gap-1.5">
+                <LockBadge />
+                <button
+                  onClick={release}
+                  disabled={busy}
+                  className="rounded-lg border border-white/10 bg-indigo-500/15 px-2.5 py-1 text-[11px] font-medium text-indigo-100 hover:bg-indigo-500/25 disabled:opacity-50"
+                >
+                  {busy ? "释放中…" : "释放内存"}
+                </button>
+              </div>
             </div>
             {msg && (
               <div className="mt-1.5 text-[11px] text-white/60">{msg}</div>

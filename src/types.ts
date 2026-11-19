@@ -179,6 +179,23 @@ export interface PermissionItem {
   service: string;
 }
 
+/// 登录状态（仅前端展示用，Rust 侧 auth::is_logged_in 才是门控权威）
+export interface AuthStatus {
+  logged_in: boolean;
+  /// 是否编译期配置了 client 凭据
+  configured: boolean;
+  email: string;
+  name: string;
+  /// 登录方式，如 UNOAuth
+  provider: string;
+}
+
+/// Rust auth_login 后台线程完成后的事件负载
+export interface LoginEvent {
+  ok: boolean;
+  message: string;
+}
+
 export interface PermissionState {
   /// 当前签名哈希与上次记录不一致 → 刚换过包，需要重新授权
   app_changed: boolean;
