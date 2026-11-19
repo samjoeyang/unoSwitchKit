@@ -204,9 +204,9 @@ npm run tauri build
 
 ### 交流群组
 
-遇到问题、提建议、看更新动态，来 Telegram 群组找我们。扫码或搜索 **[@UNOSWITCHKIT](https://t.me/UNOSWITCHKIT)** 即可加入。
+遇到问题、提建议、看更新动态，来 Telegram 群组找我们。扫码或点击[统一官方交流群](https://t.me/+3KH9Cn8-yIQ1ZDI1)即可加入（与 unobox / UNOEditor / PDF Studio 共用同一群组）。
 
-![SwitchKit Telegram 群组二维码](website/assets/telegram-qr.jpg)
+![官方 Telegram 交流群二维码](website/assets/telegram-qr.jpg)
 
 ### 赞赏支持
 
