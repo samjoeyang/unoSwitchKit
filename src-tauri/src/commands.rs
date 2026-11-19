@@ -845,6 +845,14 @@ pub async fn sidecar_status() -> SidecarStatus {
         Ok(_) => true,
         Err(e) => {
             eprintln!("sidecar ping failed: {}", e);
+            // 面板变灰是用户唯一可见的现象，把探测失败也写进守护诊断日志：
+            // 节流到每 10s 一条，避免前端 5s 轮询刷屏。
+            if crate::daemon_log::should_log_throttled(10) {
+                crate::daemon_log::log(
+                    "status_ping_fail",
+                    &[("error", e.to_string())],
+                );
+            }
             false
         }
     };

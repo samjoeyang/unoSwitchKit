@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+		SwitchKit 的原生守护（switchkit-daemon）通过 IOBluetooth 读取已配对设备并管理连接。
+		Apple 要求使用蓝牙接口的应用声明该 key（macOS 11.0+）；macOS 14 Sonoma 起
+		IOBluetooth 受蓝牙 TCC 约束，缺失声明会导致静默失败，甚至进程被 tccd 终止。
+		Tauri v2 会把 src-tauri/Info.plist 自动合并进生成的 .app/Contents/Info.plist，
+		无需在 tauri.conf.json 中额外配置。
+	-->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>SwitchKit 需要蓝牙权限以列出已配对设备并管理其连接状态。</string>
+</dict>
+</plist>

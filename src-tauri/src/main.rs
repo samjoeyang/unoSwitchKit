@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod balance;
+mod daemon_log;
 mod cleanup;
 mod commands;
 mod sysmon;
@@ -13,7 +14,7 @@ mod tray;
 mod util;
 
 use std::process::Child;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
@@ -26,10 +27,16 @@ use std::io::Write;
 /// 守护启动串行锁：setup 线程与看门狗线程不得同时 spawn，
 /// 否则两边各自 kill_port_holder 会互相杀掉刚 listen 的守护。
 static SPAWN_LOCK: Mutex<()> = Mutex::new(());
+/// spawn 进行中（可能长达 30s 等系统策略评估）。看门狗据此跳过本轮，
+/// 否则它会在 SPAWN_LOCK 上排队，锁一释放就再拉一个守护抢 9876。
+static SPAWN_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 /// 退出时置位，阻止看门狗在退出清理后又把守护拉起来。
 static WATCHDOG_STOP: AtomicBool = AtomicBool::new(false);
 /// 最近一次 spawn 完成的 unix 秒（0 = 首轮 spawn 尚未结束）。看门狗据此冷却。
 static LAST_SPAWN_DONE: AtomicU64 = AtomicU64::new(0);
+/// 上次「已拉起但 30s 内还没响应 ping」的守护 PID。下次自愈前先精确回收它，
+/// 避免在 macOS 27 慢启动场景下每轮留下一个不监听端口的僵尸守护。
+static PENDING_DAEMON_PID: AtomicU32 = AtomicU32::new(0);
 
 fn unix_secs() -> u64 {
     std::time::SystemTime::now()
@@ -98,6 +105,94 @@ fn is_process_alive(pid: u32) -> bool {
         .unwrap_or(false)
 }
 
+/// PID 是否确属本项目守护。`kill -9` 按 PID 操作，必须防 PID 复用误杀无关进程。
+fn is_our_daemon_pid(pid: u32) -> bool {
+    std::process::Command::new("/bin/ps")
+        .args(["-p", &pid.to_string(), "-o", "command="])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("switchkit-daemon"))
+        .unwrap_or(false)
+}
+
+/// 回收上次「已拉起但未就绪」的守护：macOS 27 上 AMFI/Gatekeeper 评估可能
+/// 远超就绪窗口，此时进程仍活着、只是慢；不能 kill，但下一轮自愈前若仍未
+/// 监听端口，必须精确回收，否则每轮都会遗留一个不干活的子进程。
+fn reap_stale_pending_daemon() {
+    let pid = PENDING_DAEMON_PID.swap(0, Ordering::SeqCst);
+    if pid == 0 || !is_process_alive(pid) || !is_our_daemon_pid(pid) {
+        return;
+    }
+    if port_listening() {
+        // 可能刚好就绪了，交给入口的 daemon_reachable 判定，不在这里杀。
+        return;
+    }
+    lifecycle_log(&format!(
+        "reap_stale_pending_daemon: kill -9 pid {} (still alive, never listened)",
+        pid
+    ));
+    daemon_log::log(
+        "stale_daemon_reaped",
+        &[("pid", pid.to_string()), ("reason", "alive_but_never_listened".to_string())],
+    );
+    let _ = std::process::Command::new("/bin/kill")
+        .args(["-9", &pid.to_string()])
+        .status();
+    for _ in 0..20 {
+        if !is_process_alive(pid) {
+            lifecycle_log(&format!("reap_stale_pending_daemon: pid {} gone", pid));
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    lifecycle_log(&format!(
+        "reap_stale_pending_daemon: WARN pid {} still alive after ~2s",
+        pid
+    ));
+    daemon_log::log(
+        "stale_daemon_reap_failed",
+        &[("pid", pid.to_string())],
+    );
+}
+
+/// 端口是否正在监听（裸 TCP connect，仅用于快速判定）。
+fn port_listening() -> bool {
+    use std::net::TcpStream;
+    use std::time::Duration;
+    let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    TcpStream::connect_timeout(&addr, Duration::from_millis(100)).is_ok()
+}
+
+/// 守护是否「真正可达」：连上并收到 ping 的 JSON 响应。
+/// 比裸 TCP connect 严格——accept 线程活着但守护假死/正在退出时 connect 仍成功，
+/// 据此判断「守护健康」会漏掉自愈；据此判断 reuse 会把将死进程当成活守护。
+fn daemon_reachable(connect_ms: u64, read_ms: u64) -> bool {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpStream;
+    use std::time::Duration;
+    let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+    let mut stream = match TcpStream::connect_timeout(&addr, Duration::from_millis(connect_ms)) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_millis(read_ms)));
+    let _ = stream.set_write_timeout(Some(Duration::from_millis(500)));
+    if stream.write_all(b"{\"cmd\":\"ping\"}\n").is_err() {
+        return false;
+    }
+    let mut reader = BufReader::new(stream);
+    let mut line = String::new();
+    match reader.read_line(&mut line) {
+        Ok(_) => line.contains("\"ok\"") && line.contains("true"),
+        Err(_) => false,
+    }
+}
+
 /// 全局可变状态：prevent-sleep 的 caffeinate 子进程句柄 + 屏幕清洁状态 + 系统监控。
 pub struct AppState {
     pub caffeinate: Mutex<Option<Child>>,
@@ -115,12 +210,48 @@ pub struct AppState {
 pub fn kill_port_holder() {
     // 必须用绝对路径：GUI 启动（双击 / LaunchPad / 登录项）时进程 PATH 仅含
     // /usr/bin:/bin，裸 `lsof` 会 command not found，导致清不掉端口占用。
-    let _ = std::process::Command::new("/bin/sh")
+    let out = std::process::Command::new("/bin/sh")
         .args([
             "-c",
-            "/usr/sbin/lsof -nP -tiTCP:9876 -sTCP:LISTEN 2>/dev/null | while read -r p; do kill -9 \"$p\" 2>/dev/null; done",
+            "/usr/sbin/lsof -nP -tiTCP:9876 -sTCP:LISTEN 2>/dev/null | while read -r p; do kill -9 \"$p\" 2>/dev/null; echo \"$p\"; done",
         ])
         .output();
+    // 关键：kill -9 是异步的，内核回收进程 + 释放监听端口需要时间。
+    // 旧实现发完 kill 立刻 spawn，新守护 bind 时旧 socket 尚未释放 → bind 失败；
+    // 或反过来裸 TCP connect 探测到「将死未死」的旧守护仍 LISTEN，被误判为复用。
+    // 这里轮询等待端口真正释放（最多 ~5s），再让调用方继续。
+    let started = std::time::Instant::now();
+    let killed = out
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    if !killed.is_empty() {
+        let pids = killed.replace('\n', ",");
+        lifecycle_log(&format!(
+            "kill_port_holder: killed pids [{}], waiting for 9876 to free",
+            pids
+        ));
+        daemon_log::log(
+            "kill_port_holder",
+            &[("killed_pids", pids), ("action", "wait_for_release".to_string())],
+        );
+        for _ in 0..50 {
+            if !port_listening() {
+                let ms = started.elapsed().as_millis().to_string();
+                lifecycle_log("kill_port_holder: 9876 freed");
+                daemon_log::log(
+                    "port_freed",
+                    &[("elapsed_ms", ms)],
+                );
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        lifecycle_log("kill_port_holder: WARN 9876 still listening after ~5s");
+        daemon_log::log(
+            "port_release_failed",
+            &[("elapsed_ms", started.elapsed().as_millis().to_string())],
+        );
+    }
 }
 
 /// 拉起 Swift 守护进程（蓝牙承载），独立于 App 生命周期常驻。
@@ -128,32 +259,47 @@ pub fn kill_port_holder() {
 /// 父进程退出即自我回收，无需本进程持有其句柄。
 /// 全程向 switchkit-rust.log 写生命周期日志，便于真机事后定位。
 /// 调用方：App 启动（后台线程）+ 守护看门狗自愈；两者由 SPAWN_LOCK 串行化。
-fn spawn_sidecar() {
+fn spawn_sidecar(reason: &str) {
+    lifecycle_log(&format!("spawn_sidecar: trigger={}", reason));
+    daemon_log::log("spawn_trigger", &[("reason", reason.to_string())]);
     let _guard = SPAWN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    SPAWN_IN_PROGRESS.store(true, Ordering::SeqCst);
     spawn_sidecar_inner();
     LAST_SPAWN_DONE.store(unix_secs(), Ordering::SeqCst);
+    SPAWN_IN_PROGRESS.store(false, Ordering::SeqCst);
+}
+
+/// 同时写人读日志与结构化诊断日志，避免两处口径不一致。
+fn dlog(event: &str, detail: &str) {
+    lifecycle_log(&format!("{}: {}", event, detail));
+    daemon_log::log(event, &[("detail", detail.to_string())]);
 }
 
 fn spawn_sidecar_inner() {
-    use std::net::TcpStream;
-    use std::time::Duration;
     lifecycle_log("spawn_sidecar: enter");
-    let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
-        Ok(a) => a,
-        Err(e) => {
-            lifecycle_log(&format!("spawn_sidecar: bad addr: {}", e));
-            return;
-        }
-    };
+    dlog("entry_check", "checking existing daemon before spawn");
+    // 先复核守护是否真能响应 ping。看门狗在等待 SPAWN_LOCK 期间，首轮 spawn
+    // 可能已完成且守护已就绪——此时直接往下走会 kill 掉健康守护再重拉，
+    // 这正是「原生守护反复亮灭」的根因之一。
+    if daemon_reachable(300, 1200) {
+        lifecycle_log("spawn_sidecar: daemon ping OK on entry, reuse, skip spawn");
+        dlog("conclusion", "cause=none; daemon already reachable, reuse");
+        return;
+    }
+    dlog("entry_check", "ping failed; proceed to cleanup and spawn");
+    // 上一轮「慢启动未完成」的残留：精确回收，避免 Apple Silicon 上反复 spawn
+    // 累积多个不监听端口的子进程（它们不占 9876，kill_port_holder 清不到）。
+    reap_stale_pending_daemon();
     // 升级/异常退出残留：清掉占用 9876 的旧守护，确保拉起的是本次构建的健康守护。
     // （此前 693dc59 回退时误删了 dffe193 的这步清理，导致升级后原生守护不亮。）
-    kill_port_holder();
+    kill_port_holder(); // 内部已等端口真正释放，避免 kill -9 异步竞态
     lifecycle_log("spawn_sidecar: kill_port_holder done");
-    if TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok() {
-        lifecycle_log("spawn_sidecar: 9876 already listening, reuse existing daemon");
-        return; // 已有实例在跑
+    if port_listening() {
+        lifecycle_log("spawn_sidecar: 9876 still occupied after kill, abort to avoid bind race");
+        dlog("conclusion", "cause=port_busy; 9876 still listening after kill, aborted");
+        return;
     }
-    lifecycle_log("spawn_sidecar: 9876 not listening, need to launch");
+    dlog("port_check", "9876 free; searching daemon binary");
     // 产物路径：发布态在 exe 旁；开发态在 src-tauri/binaries/<名>-<triple>
     let mut candidates: Vec<std::path::PathBuf> = Vec::new();
     if let Ok(exe) = std::env::current_exe() {
@@ -173,57 +319,110 @@ fn spawn_sidecar_inner() {
                 "spawn_sidecar: candidate MISSING: {}",
                 path.display()
             ));
+            dlog("candidate_missing", &path.to_string_lossy());
             continue;
         }
         lifecycle_log(&format!(
             "spawn_sidecar: candidate exists: {}",
             path.display()
         ));
+        daemon_log::log_binary_info(&path);
         // 关键（Apple Silicon 修复）：先清掉嵌套守护自身的隔离属性再 spawn。
         #[cfg(target_os = "macos")]
         strip_quarantine(&path);
         // 优先直接拉起 bundle 内守护（已清隔离，Apple Silicon 上 AMFI 放行）。
-        if try_spawn_daemon(&path) {
-            lifecycle_log("spawn_sidecar: daemon up via bundle path, done");
-            return;
+        // Pending = 进程已起但系统策略评估未完成；此时绝不能 kill，也不能再拉
+        // 第二个守护去抢 9876 —— 交给看门狗继续观察即可。
+        match try_spawn_daemon(&path) {
+            SpawnResult::Ready => {
+                lifecycle_log("spawn_sidecar: daemon up via bundle path, done");
+                dlog("conclusion", "cause=none; daemon ready via bundle path");
+                return;
+            }
+            SpawnResult::Pending(pid) => {
+                lifecycle_log(&format!(
+                    "spawn_sidecar: bundle daemon pid {} still initializing, defer to watchdog",
+                    pid
+                ));
+                dlog(
+                    "conclusion",
+                    &format!("cause=slow_start; pid {} alive but not ready after 30s, kept for watchdog", pid),
+                );
+                return;
+            }
+            SpawnResult::Failed => {}
         }
         lifecycle_log("spawn_sidecar: bundle path spawn FAILED, fallback to Application Support");
+        dlog("fallback_begin", "bundle path failed; trying Application Support copy");
         // bundle 内仍拉不起（极端环境），退回到 Application Support 副本。
         #[cfg(target_os = "macos")]
         {
             let dest = prepare_daemon_macos(&path);
-            if try_spawn_daemon(&dest) {
-                lifecycle_log("spawn_sidecar: daemon up via Application Support fallback, done");
-                return;
+            daemon_log::log_binary_info(&dest);
+            match try_spawn_daemon(&dest) {
+                SpawnResult::Ready => {
+                    lifecycle_log("spawn_sidecar: daemon up via Application Support fallback, done");
+                    dlog("conclusion", "cause=none; daemon ready via Application Support copy");
+                    return;
+                }
+                SpawnResult::Pending(pid) => {
+                    lifecycle_log(&format!(
+                        "spawn_sidecar: fallback daemon pid {} still initializing, defer to watchdog",
+                        pid
+                    ));
+                    dlog(
+                        "conclusion",
+                        &format!("cause=slow_start; fallback pid {} alive but not ready after 30s", pid),
+                    );
+                    return;
+                }
+                SpawnResult::Failed => {}
             }
             lifecycle_log("spawn_sidecar: Application Support fallback also FAILED");
         }
+        dlog(
+            "conclusion",
+            "cause=spawn_or_exec_failed; see daemon_stderr/syspolicy events above",
+        );
+        daemon_log::capture_syspolicy("both_paths_failed");
         return;
     }
     lifecycle_log("spawn_sidecar: no candidate path found, daemon NOT launched");
+    dlog("conclusion", "cause=binary_missing; no candidate daemon path exists");
 }
 
-/// spawn 守护进程并把它的 stderr 重定向到 daemon 日志文件，
-/// 探测 9876 是否在 ~9s 内就绪；就绪返回 true。
-/// 就绪窗口必须够宽：OTA 落地的裸签名 .app / 换包后首次执行，系统会重做
-/// 代码签名与 Gatekeeper 评估，sidecar 可能卡在 Swift 第一行之前数秒。
-/// 旧的 1s 窗口把这种「正在启动的健康进程」误杀，且此后无重试 → 守护永久不亮。
-/// 守护独立常驻：就绪后 std::mem::forget 脱离句柄，由其自带父进程看门狗回收。
-/// 未就绪时回收该子进程并记录诊断信息（是否拉起、是否还活着、其 stderr 已落盘）。
-fn try_spawn_daemon(path: &std::path::Path) -> bool {
-    use std::net::TcpStream;
-    use std::time::Duration;
-    let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
-        Ok(a) => a,
-        Err(_) => return false,
-    };
+/// 守护启动结果。`Pending` = 进程已拉起但系统策略评估未完成，不能再当失败 kill。
+enum SpawnResult {
+    Ready,
+    Pending(u32),
+    Failed,
+}
+
+/// spawn 守护进程并把它的 stderr 重定向到 daemon 日志文件，探测 ping 是否就绪。
+/// 正常启动 <1s 即返回，不拖慢面板出现。
+/// 关键（Apple Silicon / macOS 27）：ad-hoc 换包后首次 exec 会重做签名与
+/// Gatekeeper 评估，可能卡在 Swift 第一行之前十几秒。旧实现固定 9s 超时后
+/// `kill -9` 掉这个健康进程，看门狗再拉再超时 → 「原生守护反复不亮」。
+/// 现在给 30s 窗口，且每轮检查子进程是否已退出；超时后仍活着则保留
+/// （Pending），由看门狗继续确认，绝不误杀慢启动。
+fn try_spawn_daemon(path: &std::path::Path) -> SpawnResult {
+    #[cfg(unix)]
+    use std::os::unix::process::ExitStatusExt;
+    use std::time::{Duration, Instant};
+
+    // 记录 daemon.log 当前偏移量：失败后把本次 spawn 新增的 stderr 抄进诊断日志，
+    // 这样即使守护第一行都没执行（被 AMFI 拦在 exec），也有可回传的证据。
+    let log_file = daemon_log_path();
+    let stderr_offset = std::fs::metadata(&log_file)
+        .map(|m| m.len())
+        .unwrap_or(0);
     // 守护 stderr 重定向到 daemon 日志：GUI 下守护 stderr 被丢弃，落盘后我们
     // 才能看到它 bind/权限阶段的报错（如被 AMFI 拦截、端口占用）。
     let mut cmd = std::process::Command::new(path);
     match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open(daemon_log_path())
+        .open(&log_file)
     {
         Ok(f) => {
             cmd.stderr(f);
@@ -232,15 +431,20 @@ fn try_spawn_daemon(path: &std::path::Path) -> bool {
             cmd.stderr(std::process::Stdio::null());
         }
     }
+    let started = Instant::now();
     let mut child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
-            lifecycle_log(&format!(
-                "try_spawn_daemon: spawn FAILED for {}: {}",
+            let detail = format!(
+                "path={} error={} raw_os_error={:?}",
                 path.display(),
-                e
-            ));
-            return false;
+                e,
+                e.raw_os_error()
+            );
+            lifecycle_log(&format!("try_spawn_daemon: spawn FAILED {}", detail));
+            daemon_log::log("spawn_error", &[("detail", detail)]);
+            daemon_log::capture_syspolicy("spawn_error");
+            return SpawnResult::Failed;
         }
     };
     let pid = child.id();
@@ -249,31 +453,118 @@ fn try_spawn_daemon(path: &std::path::Path) -> bool {
         pid,
         path.display()
     ));
-    // 60 × (50ms connect + 100ms sleep) ≈ 9s。正常启动 <1s 即 break，不拖慢启动。
-    let mut up = false;
-    for _ in 0..60 {
-        if TcpStream::connect_timeout(&addr, Duration::from_millis(50)).is_ok() {
-            up = true;
+    daemon_log::log(
+        "spawn_ok",
+        &[
+            ("pid", pid.to_string()),
+            ("path", path.to_string_lossy().to_string()),
+        ],
+    );
+    let deadline = started + Duration::from_secs(30);
+    let mut next_report = started + Duration::from_secs(10);
+    loop {
+        // ping 比裸 TCP connect 严格：LISTEN 但假死不算就绪。
+        if daemon_reachable(50, 300) {
+            let ms = started.elapsed().as_millis().to_string();
+            lifecycle_log(&format!(
+                "try_spawn_daemon: pid {} ping OK on 9876 after {}ms",
+                pid, ms
+            ));
+            daemon_log::log(
+                "ready",
+                &[("pid", pid.to_string()), ("elapsed_ms", ms)],
+            );
+            PENDING_DAEMON_PID.store(0, Ordering::SeqCst);
+            std::mem::forget(child); // 脱离句柄，由看门狗回收
+            return SpawnResult::Ready;
+        }
+        // 子进程已退出就没必要再等；try_wait 同时完成回收，避免僵尸。
+        if let Ok(Some(status)) = child.try_wait() {
+            let ms = started.elapsed().as_millis().to_string();
+            let code = status
+                .code()
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "signal".to_string());
+            #[cfg(unix)]
+            let signal = status
+                .signal()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "none".to_string());
+            #[cfg(not(unix))]
+            let signal = "n/a".to_string();
+            lifecycle_log(&format!(
+                "try_spawn_daemon: pid {} exited early: {}; stderr in daemon log",
+                pid, status
+            ));
+            daemon_log::log(
+                "child_exit",
+                &[
+                    ("pid", pid.to_string()),
+                    ("elapsed_ms", ms),
+                    ("exit_code", code),
+                    ("signal", signal),
+                ],
+            );
+            daemon_log::log_stderr_since(&log_file, stderr_offset);
+            daemon_log::capture_syspolicy("child_exit");
+            return SpawnResult::Failed;
+        }
+        let now = Instant::now();
+        if now >= deadline {
             break;
+        }
+        if now >= next_report {
+            let secs = started.elapsed().as_secs().to_string();
+            lifecycle_log(&format!(
+                "try_spawn_daemon: pid {} still initializing (system policy evaluation), waiting...",
+                pid
+            ));
+            daemon_log::log(
+                "still_initializing",
+                &[("pid", pid.to_string()), ("elapsed_s", secs)],
+            );
+            next_report = now + Duration::from_secs(10);
         }
         std::thread::sleep(Duration::from_millis(100));
     }
-    if up {
+    if is_process_alive(pid) {
         lifecycle_log(&format!(
-            "try_spawn_daemon: pid {} listening on 9876 OK",
+            "try_spawn_daemon: pid {} NOT responding after ~30s but STILL ALIVE; keep it, watchdog will verify",
             pid
         ));
-        std::mem::forget(child); // 脱离句柄，由看门狗回收
-        true
+        daemon_log::log(
+            "timeout",
+            &[
+                ("pid", pid.to_string()),
+                ("elapsed_s", "30".to_string()),
+                ("alive", "true".to_string()),
+                ("decision", "keep_pending".to_string()),
+            ],
+        );
+        daemon_log::log_stderr_since(&log_file, stderr_offset);
+        daemon_log::capture_syspolicy("timeout_alive");
+        PENDING_DAEMON_PID.store(pid, Ordering::SeqCst);
+        std::mem::forget(child);
+        SpawnResult::Pending(pid)
     } else {
-        let alive = is_process_alive(pid);
         lifecycle_log(&format!(
-            "try_spawn_daemon: pid {} NOT up after ~9s; alive={}; 其 stderr 见 daemon 日志",
-            pid, alive
+            "try_spawn_daemon: pid {} gone after ~30s without listening; stderr in daemon log",
+            pid
         ));
+        daemon_log::log(
+            "timeout",
+            &[
+                ("pid", pid.to_string()),
+                ("elapsed_s", "30".to_string()),
+                ("alive", "false".to_string()),
+                ("decision", "fail".to_string()),
+            ],
+        );
+        daemon_log::log_stderr_since(&log_file, stderr_offset);
+        daemon_log::capture_syspolicy("timeout_gone");
         let _ = child.kill();
         let _ = child.wait();
-        false
+        SpawnResult::Failed
     }
 }
 
@@ -354,34 +645,88 @@ fn strip_quarantine(path: &std::path::Path) {
 /// 一直灰，用户只能手动重启 App。看门狗把「一次性启动」变成「持续保证」。
 pub fn start_sidecar_watchdog() {
     std::thread::spawn(|| {
-        use std::net::TcpStream;
-        let addr: std::net::SocketAddr = match "127.0.0.1:9876".parse() {
-            Ok(a) => a,
-            Err(_) => return,
-        };
         let mut failures = 0u32;
+        // 指数退避：5s → 10s → 20s → 40s（上限）。避免慢启动机器上
+        // 「spawn → 系统评估超时 → kill → 再 spawn」形成高频自伤循环。
+        let mut backoff_secs = 5u64;
         loop {
-            std::thread::sleep(std::time::Duration::from_secs(5));
+            std::thread::sleep(std::time::Duration::from_secs(backoff_secs));
             if WATCHDOG_STOP.load(Ordering::SeqCst) {
                 lifecycle_log("watchdog: stop requested, exiting");
                 break;
             }
-            if TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(400)).is_ok() {
+            // 用 ping 响应判定健康，而非裸 TCP connect：
+            // 守护「LISTEN 但假死 / 蓝牙冷启动占住事件循环」时 connect 会成功，
+            // 旧逻辑据此 failures=0，永远不自愈——这正是面板灰但守护进程还在的表现。
+            if daemon_reachable(400, 1500) {
+                if failures > 0 || backoff_secs > 5 {
+                    lifecycle_log("watchdog: daemon ping OK, reset failures/backoff");
+                    daemon_log::log("watchdog_recovered", &[("failures", failures.to_string())]);
+                }
                 failures = 0;
+                backoff_secs = 5;
                 continue;
             }
             failures += 1;
+            daemon_log::log(
+                "watchdog_fail",
+                &[
+                    ("failures", failures.to_string()),
+                    ("backoff_s", backoff_secs.to_string()),
+                    ("port_listening", port_listening().to_string()),
+                ],
+            );
             if failures < 2 {
                 continue;
             }
-            let last = LAST_SPAWN_DONE.load(Ordering::SeqCst);
-            // 0 = setup 首轮 spawn 还在进行；别插队，也别在刚 spawn 完就重启。
-            if last == 0 || unix_secs().saturating_sub(last) < 12 {
+            // 上一轮 spawn 可能正在等 macOS 27 的策略评估（最长 30s）。
+            // 此时排队只会重复拉起守护，必须在拿锁前就跳过。
+            if SPAWN_IN_PROGRESS.load(Ordering::SeqCst) {
+                daemon_log::log("watchdog_skip", &[("reason", "spawn_in_progress".to_string())]);
                 continue;
             }
-            lifecycle_log("watchdog: 9876 down twice, respawning daemon");
-            spawn_sidecar(); // 内部持 SPAWN_LOCK，与 setup 的 spawn 串行
+            let last = LAST_SPAWN_DONE.load(Ordering::SeqCst);
+            // 0 = setup 首轮 spawn 还在进行；别插队。
+            // 有 Pending 守护时给足 90s 宽限：它只是慢，不是死，别再 kill 它。
+            let pending = PENDING_DAEMON_PID.load(Ordering::SeqCst) != 0;
+            let grace = if pending { 90 } else { 12 };
+            let since = unix_secs().saturating_sub(last);
+            if last == 0 || since < grace {
+                daemon_log::log(
+                    "watchdog_skip",
+                    &[
+                        ("reason", "cooldown".to_string()),
+                        ("since_last_s", since.to_string()),
+                        ("grace_s", grace.to_string()),
+                        ("pending_pid", PENDING_DAEMON_PID.load(Ordering::SeqCst).to_string()),
+                    ],
+                );
+                continue;
+            }
+            // 二次验证：拿锁前守护可能刚好恢复（首轮 spawn 慢启动完成）。
+            // 不复核就 spawn 会先 kill_port_holder 杀掉健康守护 → 亮→灰→亮反复。
+            if daemon_reachable(400, 1500) {
+                lifecycle_log("watchdog: daemon recovered before respawn, skip");
+                daemon_log::log("watchdog_skip", &[("reason", "recovered_on_recheck".to_string())]);
+                failures = 0;
+                backoff_secs = 5;
+                continue;
+            }
+            lifecycle_log(&format!(
+                "watchdog: daemon unreachable twice, respawning (backoff={}s)",
+                backoff_secs
+            ));
+            daemon_log::log(
+                "watchdog_respawn",
+                &[
+                    ("failures", failures.to_string()),
+                    ("backoff_s", backoff_secs.to_string()),
+                    ("pending_pid", PENDING_DAEMON_PID.load(Ordering::SeqCst).to_string()),
+                ],
+            );
+            spawn_sidecar("watchdog"); // 内部持 SPAWN_LOCK，与 setup 的 spawn 串行
             failures = 0;
+            backoff_secs = (backoff_secs * 2).min(40);
         }
     });
 }
@@ -392,6 +737,8 @@ pub fn stop_sidecar_watchdog() {
 }
 
 fn main() {
+    // 结构化守护诊断日志：一次会话一个 session id，任何线程可写。
+    daemon_log::init_session();
     let mut builder = tauri::Builder::default()
         // 单实例：launchd 拉起或手动双开时，新进程立即退出并唤起已有面板，
         // 避免「开机自启后菜单栏出现两个图标」。
@@ -447,7 +794,7 @@ fn main() {
             // 拉起守护进程（独立常驻，不持有句柄）。放到后台线程：就绪窗口
             // 最坏 9s，不能让它阻塞面板出现；看门狗在 App 生命周期内持续兜底。
             start_sidecar_watchdog();
-            std::thread::spawn(|| spawn_sidecar());
+            std::thread::spawn(|| spawn_sidecar("setup"));
 
             // 自动清理定时器：后台线程，启动 ~60s 后首检，之后每小时检查一次。
             // 仅清理 safe 级项；周期与开关来自持久化设置。
