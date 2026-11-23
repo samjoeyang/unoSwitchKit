@@ -895,6 +895,7 @@ fn main() {
             commands::bt_disconnect,
             commands::quit_app,
             commands::get_update_config,
+            commands::save_qrcode_png,
             auth::auth_status,
             auth::auth_login,
             auth::auth_login_cancel,

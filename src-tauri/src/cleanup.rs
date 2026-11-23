@@ -375,6 +375,24 @@ const STATIC_TARGETS: &[Target] = &[
     Target { id: "dev-ruby-bundle", label: "Bundler 缓存", rel: ".bundle/cache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
     Target { id: "dev-nuget", label: "NuGet 缓存", rel: ".nuget", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
     Target { id: "dev-composer", label: "Composer 缓存", rel: ".composer/cache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    // —— macos-system-cleaner v2.3 对齐：Electron / pyenv / C++ / PHP 缓存 ——
+    // Electron 与 npm_junk 同级（caution）：缓存在重建前可能需重新下载数 GB，不进自动清理。
+    Target { id: "dev-electron-runtime", label: "Electron 运行时缓存 (~/.electron)", rel: ".electron", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
+    Target { id: "dev-electron-xdg", label: "Electron 缓存 (~/.cache/electron)", rel: ".cache/electron", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
+    Target { id: "dev-electron-builder-xdg", label: "electron-builder 缓存 (~/.cache)", rel: ".cache/electron-builder", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
+    Target { id: "dev-electron-cache", label: "Electron 缓存 (~/Library/Caches)", rel: "Library/Caches/electron", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
+    Target { id: "dev-electron-builder-cache", label: "electron-builder 缓存 (~/Library/Caches)", rel: "Library/Caches/electron-builder", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
+    Target { id: "dev-yarn-libcache", label: "Yarn 缓存 (~/Library/Caches)", rel: "Library/Caches/Yarn", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-pyenv-cache", label: "pyenv 源码包缓存", rel: ".pyenv/cache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-ccache-home", label: "ccache 缓存 (~/.ccache)", rel: ".ccache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-ccache-libcache", label: "ccache 缓存 (~/Library/Caches)", rel: "Library/Caches/ccache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-ccache-xdg", label: "ccache 缓存 (~/.cache)", rel: ".cache/ccache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-sccache", label: "sccache 编译缓存", rel: ".cache/sccache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-conan1", label: "Conan 1 包缓存", rel: ".conan/data", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-conan2", label: "Conan 2 包缓存", rel: ".conan2/p", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-vcpkg-cache", label: "vcpkg 缓存", rel: ".cache/vcpkg", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-composer-xdg", label: "Composer 缓存 (~/.cache)", rel: ".cache/composer", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
+    Target { id: "dev-composer-libcache", label: "Composer 缓存 (~/Library/Caches)", rel: "Library/Caches/composer", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
     Target { id: "dev-ivy", label: "Ivy 缓存", rel: ".ivy2/cache", category: "dev", category_label: "开发缓存", risk: CleanRisk::Safe },
     Target { id: "dev-conda-miniconda", label: "conda 环境 (miniconda3/envs)", rel: "miniconda3/envs", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
     Target { id: "dev-conda-anaconda", label: "conda 环境 (anaconda3/envs)", rel: "anaconda3/envs", category: "dev", category_label: "开发缓存", risk: CleanRisk::Caution },
@@ -822,6 +840,129 @@ fn push_env_item(items: &mut Vec<CleanItem>, p: &Path) {
     });
 }
 
+// ---------------- 动态扫描：构建产物（target / build / vendor 等） ----------------
+
+/// 过程产物目录名（macos-system-cleaner v2.3 的 rust_junk / cpp_junk / php_junk）。
+const ARTIFACT_NAMES: &[&str] = &[
+    "target", "vendor", "build", "builddir", "build-debug", "build-release",
+    "cmake-build-debug", "cmake-build-release", "cmake-build-relwithdebinfo",
+    "CMakeFiles", "out", "obj", "bin",
+];
+
+/// 环境/依赖目录：其内部即使出现同名子目录也不是过程产物（如 venv/bin），
+/// 一律停止递归，否则清理会破坏环境本体（对齐 skill 的 guards 规则）。
+const ARTIFACT_GUARDS: &[&str] = &[
+    ".venv", "venv", "env", "virtualenv", "node_modules", "vendor",
+    "target", "site-packages", "__pycache__", ".git",
+];
+
+fn is_artifact_guard(name: &str) -> bool {
+    ARTIFACT_GUARDS.contains(&name)
+}
+
+fn path_has_any(path: &Path, names: &[&str]) -> bool {
+    names.iter().any(|n| path.join(n).exists())
+}
+
+/// `out/obj/bin` 这类通用名需要工程标记佐证，避免把用户脚本目录误列为构建产物。
+fn is_build_artifact(path: &Path, name: &str) -> bool {
+    if !path.is_dir() {
+        return false;
+    }
+    let parent = path.parent();
+    match name {
+        "target" => parent.map(|p| p.join("Cargo.toml").exists()).unwrap_or(false),
+        "vendor" => parent.map(|p| p.join("composer.json").exists()).unwrap_or(false),
+        "build" | "builddir" | "build-debug" | "build-release" | "CMakeFiles" => true,
+        n if n.starts_with("cmake-build-") => true,
+        "out" | "obj" | "bin" => parent
+            .map(|p| {
+                path_has_any(
+                    p,
+                    &[
+                        "package.json",
+                        "CMakeLists.txt",
+                        "Cargo.toml",
+                        "Makefile",
+                        "build.gradle",
+                        "pom.xml",
+                    ],
+                )
+            })
+            .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// 扫描开发目录下的构建产物（深度 ≤2）。命中产物名即止，不深入其内部；
+/// 所有结果均为 caution，必须逐项勾选，绝不进入自动清理。
+fn scan_build_artifacts(deadline: Instant) -> Vec<CleanItem> {
+    let mut items = Vec::new();
+    for root_name in DEV_ROOTS.iter() {
+        let root = home().join(root_name);
+        if root.is_dir() {
+            scan_build_artifacts_recursive(&root, &mut items, 0, 2, deadline);
+        }
+    }
+    items
+}
+
+fn scan_build_artifacts_recursive(
+    dir: &Path,
+    items: &mut Vec<CleanItem>,
+    depth: u32,
+    max_depth: u32,
+    deadline: Instant,
+) {
+    if depth > max_depth || Instant::now() > deadline {
+        return;
+    }
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        if Instant::now() > deadline {
+            return;
+        }
+        let p = entry.path();
+        let name = match p.file_name().and_then(|n| n.to_str()) {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        if !p.is_dir() || name.starts_with('.') || DEVENV_SKIP.contains(&name.as_str()) {
+            continue;
+        }
+        if ARTIFACT_NAMES.contains(&name.as_str()) {
+            if is_build_artifact(&p, &name) {
+                let size = file_or_dir_size_deadline(&p, deadline);
+                let label = p
+                    .parent()
+                    .and_then(|d| d.file_name())
+                    .and_then(|n| n.to_str())
+                    .map(|d| format!("{}/{}", d, name))
+                    .unwrap_or_else(|| name.clone());
+                items.push(CleanItem {
+                    id: format!("artifact:{}", p.to_string_lossy()),
+                    label,
+                    path: p.to_string_lossy().into(),
+                    category: "dev".into(),
+                    category_label: "开发缓存".into(),
+                    risk: CleanRisk::Caution,
+                    size_bytes: size,
+                    exists: true,
+                });
+            }
+            // 命中产物名不再向内扫（避免把 bin/out 内的子目录重复列出）
+            continue;
+        }
+        if is_artifact_guard(&name) {
+            continue;
+        }
+        scan_build_artifacts_recursive(&p, items, depth + 1, max_depth, deadline);
+    }
+}
+
 // ---------------- 汇总扫描 ----------------
 
 /// 路径是否命中持久化排除列表（精确匹配或以排除路径为父目录）。
@@ -909,6 +1050,7 @@ pub fn collect_items(
     items.extend(scan_leftovers(&installed));
     items.extend(scan_user_caches());
     items.extend(scan_dev_envs(deadline));
+    items.extend(scan_build_artifacts(deadline));
     items.extend(scan_pyenv_envs());
 
     // 应用持久化排除列表（统一在末尾过滤，覆盖所有来源）
@@ -1090,10 +1232,37 @@ mod tests {
         assert!(!is_auto_cleanable(&mk(CleanRisk::Caution, "app")));
         assert!(!is_auto_cleanable(&mk(CleanRisk::Danger, "ios")));
     }
+
+    /// v2.3 对齐：过程产物名与环境目录防护必须覆盖 skill 清单。
+    #[test]
+    fn artifact_names_and_guards() {
+        for name in ["target", "vendor", "build", "cmake-build-debug", "CMakeFiles", "out", "obj", "bin"] {
+            assert!(ARTIFACT_NAMES.contains(&name), "缺少产物名: {}", name);
+        }
+        for guard in ["node_modules", "venv", ".venv", "target", "vendor", "site-packages", "__pycache__", ".git"] {
+            assert!(is_artifact_guard(guard), "缺少环境目录防护: {}", guard);
+        }
+    }
+
+    /// 通用名必须有工程标记，避免把用户脚本目录误列为构建产物。
+    #[test]
+    fn generic_build_names_require_project_marker() {
+        let base = std::env::temp_dir().join(format!("switchkit-artifact-test-{}", std::process::id()));
+        let bin = base.join("bin");
+        let _ = fs::create_dir_all(&bin);
+        assert!(!is_build_artifact(&bin, "bin"));
+        let _ = fs::write(base.join("package.json"), "{}");
+        assert!(is_build_artifact(&bin, "bin"));
+        let _ = fs::remove_dir_all(&base);
+    }
 }
 
 /// 定时器入口：按设置判断是否到期，到期则自动清理 safe 项并记录时间戳。
 pub fn run_auto_clean_if_due(app: &tauri::AppHandle) {
+    // 定时自动清理属登录层功能：未登录时不执行（也不更新时间戳）。
+    if !crate::auth::is_logged_in(app) {
+        return;
+    }
     let mut s = crate::store::load_settings(app);
     if !s.auto_clean_enabled {
         return;

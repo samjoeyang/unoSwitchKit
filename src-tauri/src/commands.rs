@@ -938,3 +938,31 @@ pub fn get_update_config(app: AppHandle) -> UpdateConfig {
         current_version: app.package_info().version.to_string(),
     }
 }
+
+// ---------------- 二维码保存 ----------------
+
+/// 把前端生成的二维码 PNG（data:image/png;base64,...）保存到「下载」目录。
+/// 前端 data URL 的下载属性在 WKWebView 中不可靠，故走 Rust 直接写文件，返回完整路径。
+#[tauri::command]
+pub fn save_qrcode_png(data_url: String) -> Result<String, String> {
+    use base64::Engine as _;
+
+    const PREFIX: &str = "data:image/png;base64,";
+    let b64 = data_url
+        .strip_prefix(PREFIX)
+        .ok_or_else(|| "不是有效的 PNG data URL".to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| format!("PNG 解码失败：{}", e))?;
+
+    let downloads = util::home_dir().join("Downloads");
+    fs::create_dir_all(&downloads).map_err(|e| format!("无法访问下载目录：{}", e))?;
+
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_millis();
+    let path = downloads.join(format!("SwitchKit-二维码-{}.png", stamp));
+    fs::write(&path, &bytes).map_err(|e| format!("写入失败：{}", e))?;
+    Ok(path.to_string_lossy().into_owned())
+}

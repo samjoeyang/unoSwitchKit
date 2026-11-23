@@ -2,6 +2,25 @@
 
 本文件记录 SwitchKit 实施进度，对应需求文档里程碑 M1–M4。
 
+## [0.4.16] - 2026-11-23
+
+### 新增：链接生成二维码
+
+- 面板新增「生成二维码」区块：输入链接（自动补 `https://`，仅接受 http/https）实时生成二维码，可调整白边宽度（4–8 模块）。
+- **四周保留静默区（quiet zone）**：默认 4 模块，符合 ISO/IEC 18004 最低要求，杜绝「黑码直接到边扫不出来」；图片容器再加一层白色内边距，二维码始终白底黑码以保证可扫描。
+- 「保存图片」把 PNG 写入 `~/Downloads/SwitchKit-二维码-<时间戳>.png`。WKWebView 中 data URL 的下载属性不可靠，故由 Rust 命令直接落盘并返回路径。
+- 纯前端生成（qrcode），不触发任何 TCC 权限、不改变默认不联网承诺。新增 `qrcode` / `lucide-react` 前端依赖与 Rust `base64` 依赖。
+
+### 调整：清理缓存清单对齐 macos-system-cleaner v2.3
+
+- 新增 16 项静态开发缓存（Electron / Yarn Library / pyenv 源码包 / ccache / sccache / Conan 1·2 / vcpkg / Composer 等）；Electron 相关定为 caution，不进自动清理。
+- 新增动态扫描 `scan_build_artifacts()`：在开发根目录下（深度 ≤2）识别 `target/` `vendor/` `build*` `CMakeFiles` 等构建产物，全部 caution、需逐项勾选，绝不自动清理；对 `venv` / `node_modules` 等环境目录停止递归，避免误删环境本体。
+- 清单文档 `docs/cleanup-manifest.md` 同步；单测增至 7 项全绿。
+
+### 调整：权限提醒「本次不显示」改为右上角 ×
+
+- 顶部权限引导的「本次不显示」文字按钮改为右上角关闭图标，行为不变（仅本次运行隐藏，重启 App 恢复），并顺带修正「已处理」反馈文案。
+
 ## [0.4.15] - 2026-11-19
 
 ### 新增：账号登录与功能分层

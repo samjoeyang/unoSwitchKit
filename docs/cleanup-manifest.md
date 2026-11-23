@@ -55,8 +55,12 @@
 | npm `_cacache` | `~/.npm/_cacache` | safe | ✅ |
 | npm `_npx` / `_prebuilds` / `_logs` | `~/.npm/{_npx,_prebuilds,_logs}` | safe | 🆕 |
 | node-gyp 编译头 | `~/.node-gyp` | safe | 🆕 |
-| pnpm / Yarn 缓存 | `~/.cache/{pnpm,yarn}`、`~/.pnpm-store`、`~/.yarn` | safe | 🆕（补 `~/.cache/pnpm`、`~/.cache/yarn`、`~/.pnpm-store`；原有 `~/.yarn`） |
+| pnpm / Yarn 缓存 | `~/.cache/{pnpm,yarn}`、`~/.pnpm-store`、`~/.yarn`、`~/Library/Caches/Yarn` | safe | 🆕（补 `~/.cache/pnpm`、`~/.cache/yarn`、`~/.pnpm-store`；原有 `~/.yarn`；`~/Library/Caches/Yarn` 为 v2.3 对齐） |
+| Electron 运行时 / 打包缓存 | `~/.electron`、`~/.cache/{electron,electron-builder}`、`~/Library/Caches/{electron,electron-builder}` | caution | 🆕（v2.3 对齐，不自动清理） |
 | 项目 `node_modules`（深度≤3，动态验证） | 开发目录 `**/node_modules` | caution | 🆕（scan_dev_envs） |
+| Rust 构建产物（深度≤2，动态） | 开发目录 `**/target`（需同级 `Cargo.toml`） | caution | 🆕（v2.3 对齐，scan_build_artifacts） |
+| C/C++ 构建产物（深度≤2，动态） | 开发目录 `**/{build,builddir,build-*,cmake-build-*,CMakeFiles}`，`{out,obj,bin}` 需工程标记 | caution | 🆕（v2.3 对齐，scan_build_artifacts） |
+| PHP `vendor/`（深度≤2，动态） | 开发目录 `**/vendor`（需同级 `composer.json`） | caution | 🆕（v2.3 对齐，scan_build_artifacts） |
 | pip 缓存 | `~/Library/Caches/pip`、`~/.cache/pip` | safe | ✅ + 🆕（`~/.cache/pip` 新增） |
 | uv 缓存 | `~/.cache/uv` | safe | 🆕 |
 | Cargo registry / git | `~/.cargo/{registry,git}` | safe | ✅ |
@@ -66,9 +70,11 @@
 | Maven 仓库 | `~/.m2/repository` | safe | ✅ |
 | Gradle 缓存 | `~/.gradle/caches` | safe | ✅ |
 | SwiftPM / CocoaPods / Go 编译 | `~/Library/Caches/{org.swift.swiftpm,org.cocoapods,go-build}` | safe | ✅ |
-| NuGet / Composer / Ivy | `~/.nuget`、`~/.composer/cache`、`~/.ivy2/cache` | safe | 🆕 |
+| NuGet / Composer / Ivy | `~/.nuget`、`~/.composer/cache`、`~/.cache/composer`、`~/Library/Caches/composer`、`~/.ivy2/cache` | safe | 🆕（后两项为 v2.3 对齐） |
+| ccache / sccache | `~/.ccache`、`~/.cache/{ccache,sccache}`、`~/Library/Caches/ccache` | safe | 🆕（v2.3 对齐） |
+| Conan / vcpkg 包缓存 | `~/.conan/data`、`~/.conan2/p`、`~/.cache/vcpkg` | safe | 🆕（v2.3 对齐） |
 | Homebrew 缓存 | `~/Library/Caches/Homebrew` | safe | ✅（syscache 兜底） |
-| XDG 通用缓存（剩余子项） | `~/.cache`（排除 pip/uv/huggingface/torch/yarn/pnpm/lm-studio） | safe | ⏳（未实现动态扫描） |
+| XDG 通用缓存（剩余子项） | `~/.cache`（排除 pip/uv/huggingface/torch/yarn/pnpm/lm-studio/electron/electron-builder/ccache/sccache/vcpkg/composer） | safe | ⏳（未实现动态扫描；排除表已随 v2.3 更新） |
 
 ## E. 虚拟环境 / 解释器
 
@@ -78,6 +84,7 @@
 | virtualenvs | `~/.virtualenvs` | caution | 🆕 |
 | conda 环境 | `~/miniconda3/envs`、`~/anaconda3/envs`、`~/.conda/envs` | caution | 🆕（含新增 `~/.conda/envs`） |
 | pyenv 环境 | `~/.pyenv/versions/*/envs/*` | caution | 🆕（scan_pyenv_envs） |
+| pyenv 源码包归档 | `~/.pyenv/cache` | safe | 🆕（v2.3 对齐） |
 
 ## F. Xcode / 模拟器 / iOS
 
@@ -148,3 +155,27 @@
 
 ### 测试
 - 新增 `is_excluded_matches_prefix`、`auto_cleanable_rules` 单测；`cargo test cleanup` 5 passed，编译零 warning。
+
+---
+
+## macos-system-cleaner v2.3.0 对齐（2026-11-19，待发版）
+
+技能包 2.2.0 → 2.3.0 的实质变化只有「开发过程产物/缓存覆盖扩大」，没有改权限模型或清理纪律。已按可用性筛入 App：
+
+### 已落地（`src-tauri/src/cleanup.rs`）
+
+- **静态缓存补 16 项**：Electron 运行时与打包缓存 5 项（`~/.electron`、`~/.cache/electron`、`~/.cache/electron-builder`、`~/Library/Caches/{electron,electron-builder}`）、`~/Library/Caches/Yarn`、`~/.pyenv/cache`、ccache 3 处、sccache、Conan 1/2、vcpkg、Composer 两处 XDG/Library 缓存。
+  - Electron 5 项定为 `caution`（技能侧的 `npm_junk` 为逐项确认），不进自动清理；其余为 `safe`。
+  - `Library/Caches` 下的新增项会被 `static_cache_basenames()` 纳入去重，不会和 `syscache` 动态兜底重复。
+- **新增动态扫描 `scan_build_artifacts()`**：在 `DEV_ROOTS` 下深度 ≤2 扫 `target/`、`vendor/`、`build*/cmake-build-*/CMakeFiles`，`out/obj/bin` 需同目录存在 `package.json`/`CMakeLists.txt`/`Cargo.toml`/`Makefile`/`build.gradle`/`pom.xml` 才列入。
+  - 全部 `caution`、`category = dev`，沿用面板的勾选 + 二次确认；`is_auto_cleanable()` 不会选中。
+  - 防护：命中产物名即停止递归；`.venv/venv/env/virtualenv/node_modules/vendor/target/site-packages/__pycache__/.git` 内部不再扫（避免把 `venv/bin` 当构建产物）；沿用 `DEVENV_SKIP`（含 `unoSwitchKit` 本应用工程）。
+  - `target/` 需同级 `Cargo.toml`、`vendor/` 需同级 `composer.json`，降低误报。
+- **单测**：新增 `artifact_names_and_guards`、`generic_build_names_require_project_marker`；`cargo test cleanup` 7 passed（2026-11-19 实跑）。
+
+### 有意未跟进
+
+- 系统级目录、Docker 命令式清理、Time Machine 快照、外接卷废纸篓：仍超出「主目录内 → 回收站」架构，维持 ⏳。
+- `~/.cache` 下剩余项的 XDG 通用动态扫描：未实现；仅同步了 v2.3 的排除名单（electron/electron-builder/ccache/sccache/vcpkg/composer）。
+- 全局安装目录 `~/Library/pnpm/global`、`~/.yarn/lib` 与 Conda `pkgs`：技能明确排除/归属其他类目，不新增。
+- 技能侧的 `cleanup_log.json` 审计：App 已有 `~/.Trash/switchkit-manifest.json`（原路径/体积/时间/恢复），不重复造第二份日志。

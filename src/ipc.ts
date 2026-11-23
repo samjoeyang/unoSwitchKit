@@ -78,4 +78,6 @@ export const api = {
     invoke<boolean>("acknowledge_permission_change"),
   copyResetCommand: () => invoke<void>("copy_reset_command"),
   openPrivacySettings: () => invoke<void>("open_privacy_settings"),
+  saveQrcodePng: (dataUrl: string) =>
+    invoke<string>("save_qrcode_png", { dataUrl }),
 };

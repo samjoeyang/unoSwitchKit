@@ -4,6 +4,7 @@ import { ResourcePanel } from "./components/ResourcePanel";
 import { CleanupPanel } from "./components/CleanupPanel";
 import { BluetoothSection } from "./components/BluetoothSection";
 import { BalanceSection } from "./components/BalanceSection";
+import { QrCodeSection } from "./components/QrCodeSection";
 import { SettingsSection } from "./components/SettingsSection";
 import { StatusDot } from "./components/StatusDot";
 import { PermissionBanner } from "./components/PermissionBanner";
@@ -307,6 +308,7 @@ export default function App() {
         version={balanceVersion}
         onChanged={() => setBalanceVersion((v) => v + 1)}
       />
+      <QrCodeSection />
 
       {showSettings && (
         <SettingsSection

@@ -57,7 +57,18 @@ export function PermissionBanner({
     "rounded bg-white/10 px-2 py-1 text-[10px] text-white/75 transition hover:bg-white/20 disabled:opacity-40";
 
   return (
-    <div className="mb-2 rounded-xl border border-amber-400/30 bg-amber-400/10 p-2.5">
+    <div className="mb-2 relative rounded-xl border border-amber-400/30 bg-amber-400/10 p-2.5">
+      <button
+        aria-label="仅本次运行隐藏提醒"
+        title="仅本次运行隐藏，重启 App 后会再次显示"
+        disabled={busy !== null}
+        onClick={onDismiss}
+        className="absolute right-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded text-white/40 transition hover:bg-white/10 hover:text-white/80"
+      >
+        <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+          <path d="M4 4l8 8M12 4l-8 8" />
+        </svg>
+      </button>
       <div className="flex items-start gap-2">
         <span className="mt-[2px] text-[12px] leading-none text-amber-300">!</span>
         <div className="min-w-0 flex-1">
@@ -113,19 +124,11 @@ export function PermissionBanner({
                 run(
                   "ack",
                   onAcknowledge,
-                  "已记录当前签名；未生效项仍需手动授权，可点「本次不显示」暂时收起"
+                  "已记录当前签名；未生效项仍需手动授权，可点右上角 × 暂时收起"
                 )
               }
             >
               已处理
-            </button>
-            <button
-              disabled={busy !== null}
-              className={btn}
-              title="仅本次运行隐藏，重启 App 后会再次显示"
-              onClick={onDismiss}
-            >
-              本次不显示
             </button>
           </div>
 
