@@ -153,17 +153,24 @@ export default function App() {
         /* 忽略 */
       }
     }, 30000);
+    // 登录态定期同步：Rust 侧会话可能因续期失效被清除，前端此前只在启动时
+    // 拉一次，导致「设置显示已登录、功能却被拒」。60s 一次本地 IPC，零网络。
+    const authTimer = setInterval(() => {
+      if (!document.hidden) void loadAuth();
+    }, 60000);
     // 面板每次重新显示时刷新（避免托盘弹出后显示过期状态，如废纸篓计数）
     const onVis = () => {
       if (!document.hidden) {
         refresh();
         loadPermissionState();
+        void loadAuth();
       }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
       clearInterval(t);
       clearInterval(appearanceTimer);
+      clearInterval(authTimer);
       document.removeEventListener("visibilitychange", onVis);
     };
   }, []);

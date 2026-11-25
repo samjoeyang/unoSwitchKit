@@ -26,7 +26,16 @@ export function setAuth(next: AuthStatus) {
 export async function loadAuth(): Promise<AuthStatus> {
   try {
     const s = await api.authStatus();
-    setAuth(s);
+    // 定时同步为避免无意义重渲染：状态未变则复用原对象引用
+    if (
+      s.logged_in !== current.logged_in ||
+      s.configured !== current.configured ||
+      s.email !== current.email ||
+      s.name !== current.name ||
+      s.provider !== current.provider
+    ) {
+      setAuth(s);
+    }
     return s;
   } catch {
     setAuth({ logged_in: false, configured: false, email: "", name: "", provider: "" });

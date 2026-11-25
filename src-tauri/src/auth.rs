@@ -36,6 +36,8 @@ const REDIRECT_URI: &str = "unoswitchkit://callback/";
 /// 登录是否进行中（防重复点）；等待回调的通道由 deep-link 回调唤醒。
 static LOGIN_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 static CALLBACK_TX: Mutex<Option<mpsc::Sender<String>>> = Mutex::new(None);
+/// 续期串行锁：门控与后台线程可能同时触发，避免重复 curl 与 refresh token 竞争。
+static REFRESH_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 struct Session {
@@ -112,15 +114,26 @@ fn now_secs() -> u64 {
 }
 
 fn session_valid(s: &Session) -> bool {
-    if s.access_token.is_empty() {
-        return false;
-    }
-    s.expires_at == 0 || s.expires_at > now_secs() + 60
+    // 门控是本地授权判定：只要存在登录时写入的令牌即视为已登录。
+    // 本 App 没有任何业务命令拿 access_token 调远端 API，过期只影响静默续期时机，
+    // 不应把用户判成未登录（0.4.17 修复：token 一过期，前端仍显示已登录，
+    // 但 Rust 门控直接拒绝清理等登录层功能）。
+    !s.access_token.is_empty()
 }
 
 /// 功能门控唯一入口。
+/// 过期或临近过期时先尝试一次静默续期（快路径零网络）；续期网络失败不影响本地登录态。
 pub fn is_logged_in(app: &AppHandle) -> bool {
-    load_session(app).map(|s| session_valid(&s)).unwrap_or(false)
+    let Some(s) = load_session(app) else { return false };
+    if !session_valid(&s) {
+        return false;
+    }
+    if s.expires_at <= now_secs() + 600 {
+        refresh_if_needed(app);
+        // 仅 refresh_token 被服务端明确判无效时才会清除会话，这里复核一次
+        return load_session(app).map(|s| session_valid(&s)).unwrap_or(false);
+    }
+    true
 }
 
 pub fn require_login() -> String {
@@ -538,31 +551,62 @@ pub fn auth_logout(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// token 即将过期（<10 分钟）时用 refresh_token 静默续期；失败清除会话。
+/// token 即将过期（<10 分钟）时用 refresh_token 静默续期。
+///
+/// 原则：**网络/服务端临时故障绝不清除本地会话**。此前任何 curl 失败或 5xx
+/// 都会 clear_session，而前端登录态只在启动/登录时同步，于是出现「设置里显示
+/// 已登录、功能却报需要登录」。只有 refresh_token 被明确判无效（invalid_grant）
+/// 才清除；其余情况保留令牌，下次再试。
 pub fn refresh_if_needed(app: &AppHandle) -> bool {
+    let Some(s) = load_session(app) else { return false };
+    if !session_valid(&s) {
+        return false;
+    }
+    if s.expires_at > now_secs() + 600 {
+        return true; // 快路径：绝大多数调用零网络
+    }
+    if s.refresh_token.is_empty() {
+        auth_log("refresh: 无 refresh_token，保留现有会话");
+        return true;
+    }
+    // try_lock：已有续期在跑就跳过本次，避免同一 refresh_token 被并发使用
+    let Ok(_guard) = REFRESH_LOCK.try_lock() else {
+        auth_log("refresh: 已有续期进行中，跳过本次");
+        return true;
+    };
+    // 等锁期间可能已被其它路径续期，重读一次
     let Some(s) = load_session(app) else { return false };
     if s.expires_at > now_secs() + 600 {
         return true;
-    }
-    if s.refresh_token.is_empty() {
-        return false;
     }
     let form = format!(
         "grant_type=refresh_token&refresh_token={}&client_id={}",
         urlencode(&s.refresh_token),
         urlencode(CLIENT_ID),
     );
-    let Ok((status, body)) = http_post_form(TOKEN_URL, &form) else {
-        clear_session(app);
-        return false;
+    let (status, body) = match http_post_form(TOKEN_URL, &form) {
+        Ok(v) => v,
+        Err(e) => {
+            auth_log(&format!("refresh: 网络失败，保留会话: {}", e));
+            return true;
+        }
     };
     if status < 200 || status >= 300 {
-        clear_session(app);
-        return false;
+        let hard_invalid = status == 400 && body.contains("invalid_grant");
+        auth_log(&format!(
+            "refresh: HTTP {}，{}",
+            status,
+            if hard_invalid { "refresh_token 失效，清除会话" } else { "保留会话待重试" }
+        ));
+        if hard_invalid {
+            clear_session(app);
+            return false;
+        }
+        return true;
     }
     let Ok(v) = serde_json::from_str::<serde_json::Value>(&body) else {
-        clear_session(app);
-        return false;
+        auth_log("refresh: 响应解析失败，保留会话");
+        return true;
     };
     let access = v
         .get("access_token")
@@ -570,8 +614,8 @@ pub fn refresh_if_needed(app: &AppHandle) -> bool {
         .unwrap_or("")
         .to_string();
     if access.is_empty() {
-        clear_session(app);
-        return false;
+        auth_log("refresh: 响应缺少 access_token，保留会话");
+        return true;
     }
     let next = Session {
         access_token: access,
@@ -585,7 +629,16 @@ pub fn refresh_if_needed(app: &AppHandle) -> bool {
         email: s.email,
         name: s.name,
     };
-    save_session(app, &next).is_ok()
+    match save_session(app, &next) {
+        Ok(_) => {
+            auth_log("refresh: 续期成功");
+            true
+        }
+        Err(e) => {
+            auth_log(&format!("refresh: 写会话失败，保留原会话: {}", e));
+            true
+        }
+    }
 }
 
 #[cfg(test)]
@@ -613,6 +666,23 @@ mod tests {
             pkce_challenge(v).unwrap(),
             "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
         );
+    }
+
+    #[test]
+    fn session_valid_ignores_expiry() {
+        // 门控是本地授权：令牌存在即已登录，过期交给静默续期处理，不能误判未登录
+        let s = Session {
+            access_token: "tok".to_string(),
+            refresh_token: "ref".to_string(),
+            expires_at: 1, // 早已过期
+            sub: String::new(),
+            email: String::new(),
+            name: String::new(),
+        };
+        assert!(session_valid(&s));
+
+        let empty = Session { access_token: String::new(), ..s };
+        assert!(!session_valid(&empty));
     }
 
     #[test]

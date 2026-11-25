@@ -10,7 +10,7 @@ import type {
   TrashItem,
 } from "../types";
 import { api } from "../ipc";
-import { gateFrontend } from "../authGate";
+import { authErrorText, gateFrontend } from "../authGate";
 import { LockBadge } from "./LockBadge";
 
 function fmtBytes(b: number): string {
@@ -194,7 +194,7 @@ export function CleanupPanel() {
       const r = await api.cleanSelected(ids);
       setResult(r);
     } catch (e) {
-      setResultError(`清理失败：${e}`);
+      setResultError(`清理失败：${authErrorText(e)}`);
     } finally {
       setCleaning(false);
       // 结果卡独立于 msg；静默重扫只刷新列表，不覆盖结果提醒
@@ -237,7 +237,7 @@ export function CleanupPanel() {
       setMsg(`已移入废纸篓：${f.path}`);
       await loadAnalysis();
     } catch (e) {
-      setMsg(`清理失败：${e}`);
+      setMsg(`清理失败：${authErrorText(e)}`);
     } finally {
       setLargeBusy(null);
     }

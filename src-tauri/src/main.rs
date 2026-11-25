@@ -815,13 +815,13 @@ fn main() {
             start_sidecar_watchdog();
             std::thread::spawn(|| spawn_sidecar("setup"));
 
-            // 登录令牌续期：后台线程，启动后每 5 分钟静默刷新过期会话。
-            // is_logged_in 保持纯本地判定（零延迟），不在此处阻塞命令线程。
+            // 登录令牌续期：启动即检查一次（此前要等 300s，重启后过期窗口内
+            // 功能会被门控拦住），之后每 5 分钟静默刷新；网络失败保留会话。
             {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || loop {
-                    std::thread::sleep(std::time::Duration::from_secs(300));
                     crate::auth::refresh_if_needed(&handle);
+                    std::thread::sleep(std::time::Duration::from_secs(300));
                 });
             }
 
