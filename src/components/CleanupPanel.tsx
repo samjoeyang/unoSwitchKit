@@ -10,6 +10,7 @@ import type {
   TrashItem,
 } from "../types";
 import { api } from "../ipc";
+import { useT, tb, type TranslationKey } from "../i18n";
 import { authErrorText, gateFrontend } from "../authGate";
 import { LockBadge } from "./LockBadge";
 
@@ -37,7 +38,7 @@ const CATEGORY_ORDER = [
   "mail",
 ];
 
-const RISK_META: Record<CleanRisk, { label: string; cls: string }> = {
+const RISK_META: Record<CleanRisk, { label: TranslationKey; cls: string }> = {
   safe: { label: "安全", cls: "bg-emerald-500/15 text-emerald-300" },
   caution: { label: "谨慎", cls: "bg-amber-500/15 text-amber-300" },
   danger: { label: "危险", cls: "bg-rose-500/15 text-rose-300" },
@@ -56,6 +57,7 @@ function PathRow({ path, size }: { path: string; size: string }) {
 }
 
 export function CleanupPanel() {
+  const t = useT();
   const [tab, setTab] = useState<"clean" | "analysis" | "schedule" | "trash">("clean");
   const [preview, setPreview] = useState<CleanPreview | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -102,7 +104,7 @@ export function CleanupPanel() {
       );
       setSelected(def);
     } catch (e) {
-      setMsg(`扫描失败：${e}`);
+      setMsg(t("扫描失败：{detail}", { detail: tb(e) }));
     } finally {
       setBusy(null);
     }
@@ -158,7 +160,7 @@ export function CleanupPanel() {
     if (!gateFrontend()) return;
     if (cleaning || busy === "scan") return;
     if (selected.size === 0) {
-      setMsg("请先勾选要清理的项");
+      setMsg(t("请先勾选要清理的项"));
       return;
     }
     if (!confirmClear) {
@@ -172,14 +174,20 @@ export function CleanupPanel() {
       const cautionCount = selItems.filter((i) => i.risk === "caution").length;
       let warn = "";
       if (dangerCount > 0) {
-        warn = `含 ${dangerCount} 项危险项（如 iOS 备份、应用残留），`;
+        warn = t("含 {count} 项危险项（如 iOS 备份、应用残留），", {
+          count: dangerCount,
+        });
       } else if (cautionCount > 0) {
-        warn = `含 ${cautionCount} 项谨慎项（如 App 缓存），`;
+        warn = t("含 {count} 项谨慎项（如 App 缓存），", {
+          count: cautionCount,
+        });
       }
       setMsg(
-        `将${warn}清理 ${selected.size} 项（约 ${fmtBytes(
-          selectedBytes
-        )}）。先移入废纸篓、可恢复，再次点击确认。`
+        t("将{warn}清理 {count} 项（约 {size}）。先移入废纸篓、可恢复，再次点击确认。", {
+          warn,
+          count: selected.size,
+          size: fmtBytes(selectedBytes),
+        })
       );
       return;
     }
@@ -194,7 +202,7 @@ export function CleanupPanel() {
       const r = await api.cleanSelected(ids);
       setResult(r);
     } catch (e) {
-      setResultError(`清理失败：${authErrorText(e)}`);
+      setResultError(t("清理失败：{detail}", { detail: authErrorText(e) }));
     } finally {
       setCleaning(false);
       // 结果卡独立于 msg；静默重扫只刷新列表，不覆盖结果提醒
@@ -213,7 +221,7 @@ export function CleanupPanel() {
       setBundles(b);
       setLarge(l);
     } catch (e) {
-      setMsg(`分析失败：${e}`);
+      setMsg(t("分析失败：{detail}", { detail: tb(e) }));
     } finally {
       setAnalysisBusy(false);
     }
@@ -234,10 +242,10 @@ export function CleanupPanel() {
     setLargeBusy(f.id);
     try {
       await api.trashPath(f.path);
-      setMsg(`已移入废纸篓：${f.path}`);
+      setMsg(t("已移入废纸篓：{path}", { path: f.path }));
       await loadAnalysis();
     } catch (e) {
-      setMsg(`清理失败：${authErrorText(e)}`);
+      setMsg(t("清理失败：{detail}", { detail: authErrorText(e) }));
     } finally {
       setLargeBusy(null);
     }
@@ -252,7 +260,7 @@ export function CleanupPanel() {
       await api.saveSettings(next);
       setSettings(next);
     } catch (e) {
-      setMsg(`保存失败：${e}`);
+      setMsg(t("保存失败：{detail}", { detail: tb(e) }));
     } finally {
       setSchedBusy(false);
     }
@@ -265,7 +273,7 @@ export function CleanupPanel() {
     try {
       setTrashItems(await api.listTrashItems());
     } catch (e) {
-      setMsg(`加载回收站失败：${e}`);
+      setMsg(t("加载回收站失败：{detail}", { detail: tb(e) }));
     } finally {
       setTrashBusy(false);
     }
@@ -276,15 +284,15 @@ export function CleanupPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  async function restoreTrash(t: TrashItem) {
+  async function restoreTrash(item: TrashItem) {
     if (!gateFrontend()) return;
     setTrashBusy(true);
     try {
-      await api.restoreTrashItem(t.trashed_path);
-      setMsg(`已恢复：${t.name}`);
+      await api.restoreTrashItem(item.trashed_path);
+      setMsg(t("已恢复：{name}", { name: item.name }));
       await loadTrash();
     } catch (e) {
-      setMsg(`恢复失败：${e}`);
+      setMsg(t("恢复失败：{detail}", { detail: tb(e) }));
     } finally {
       setTrashBusy(false);
     }
@@ -295,10 +303,10 @@ export function CleanupPanel() {
     setTrashBusy(true);
     try {
       const n = await api.emptySwitchkitTrash();
-      setMsg(`已清空本应用移入废纸篓的 ${n} 项`);
+      setMsg(t("已清空本应用移入废纸篓的 {count} 项", { count: n }));
       await loadTrash();
     } catch (e) {
-      setMsg(`清空失败：${e}`);
+      setMsg(t("清空失败：{detail}", { detail: tb(e) }));
     } finally {
       setTrashBusy(false);
     }
@@ -307,8 +315,9 @@ export function CleanupPanel() {
   /// 将清理项加入持久化排除列表（永不出现在清单中）。
   async function excludeItem(it: CleanItem) {
     if (!settings) return;
+    const label = tb(it.label);
     if (settings.exclude_paths.includes(it.path)) {
-      setMsg(`「${it.label}」已在排除列表`);
+      setMsg(t("「{label}」已在排除列表", { label }));
       return;
     }
     const next = {
@@ -318,10 +327,10 @@ export function CleanupPanel() {
     try {
       await api.saveSettings(next);
       setSettings(next);
-      setMsg(`已将「${it.label}」加入排除列表`);
+      setMsg(t("已将「{label}」加入排除列表", { label }));
       await scanCleanup();
     } catch (e) {
-      setMsg(`排除失败：${e}`);
+      setMsg(t("排除失败：{detail}", { detail: tb(e) }));
     }
   }
 
@@ -335,14 +344,14 @@ export function CleanupPanel() {
   }
 
   function lastRunText(ts: number): string {
-    if (!ts) return "从未";
+    if (!ts) return t("从未");
     const diff = Math.floor(Date.now() / 1000 - ts);
-    if (diff < 3600) return `${Math.max(1, Math.floor(diff / 60))} 分钟前`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`;
-    return `${Math.floor(diff / 86400)} 天前`;
+    if (diff < 3600) return t("{count} 分钟前", { count: Math.max(1, Math.floor(diff / 60)) });
+    if (diff < 86400) return t("{count} 小时前", { count: Math.floor(diff / 3600) });
+    return t("{count} 天前", { count: Math.floor(diff / 86400) });
   }
 
-  const tabs: { key: typeof tab; label: string }[] = [
+  const tabs: { key: typeof tab; label: TranslationKey }[] = [
     { key: "clean", label: "清理" },
     { key: "analysis", label: "分析" },
     { key: "schedule", label: "定时" },
@@ -353,22 +362,22 @@ export function CleanupPanel() {
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1 text-[13px] font-medium text-white/90">
-          清理无用文件 <LockBadge />
+          {t("清理无用文件")} <LockBadge />
         </span>
         <div className="flex gap-1">
-          {tabs.map((t) => (
+          {tabs.map((tabDef) => (
             <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
+              key={tabDef.key}
+              onClick={() => setTab(tabDef.key)}
               disabled={cleaning}
               className={
                 "rounded px-2 py-0.5 text-[10px] transition disabled:opacity-40 " +
-                (tab === t.key
+                (tab === tabDef.key
                   ? "bg-white/15 text-white/90"
                   : "text-white/45 hover:text-white/75")
               }
             >
-              {t.label}
+              {t(tabDef.label)}
             </button>
           ))}
         </div>
@@ -383,10 +392,13 @@ export function CleanupPanel() {
               disabled={busy === "scan" || cleaning}
               className="text-[11px] text-white/60 hover:text-white/90 disabled:opacity-40"
             >
-              {busy === "scan" ? "扫描中…" : "重新扫描"}
+              {busy === "scan" ? t("扫描中…") : t("重新扫描")}
             </button>
             <span className="text-[10px] text-white/45">
-              已选 {selected.size} 项 · {fmtBytes(selectedBytes)}
+              {t("已选 {count} 项 · {size}", {
+                count: selected.size,
+                size: fmtBytes(selectedBytes),
+              })}
             </span>
           </div>
 
@@ -398,13 +410,13 @@ export function CleanupPanel() {
               <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-black/25 backdrop-blur-[1px]">
                 <div className="flex items-center gap-1.5 rounded-md bg-black/55 px-2.5 py-1 text-[10px] text-white/90">
                   <span className="cleanup-spinner inline-block h-3 w-3 rounded-full border-2 border-white/25 border-t-indigo-300" />
-                  正在移入废纸篓…
+                  {t("正在移入废纸篓…")}
                 </div>
               </div>
             )}
             <div className="thin-scroll max-h-44 space-y-2 overflow-y-auto pr-1">
             {groups.length === 0 && !busy && !cleaning && (
-              <div className="text-[11px] text-white/45">暂无可清理项</div>
+              <div className="text-[11px] text-white/45">{t("暂无可清理项")}</div>
             )}
             {groups.map((g) => {
               const allSelected =
@@ -413,7 +425,7 @@ export function CleanupPanel() {
                 <div key={g.category}>
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-medium text-white/75">
-                      {g.label}
+                      {tb(g.label)}
                     </span>
                     <button
                       onClick={() => {
@@ -428,7 +440,7 @@ export function CleanupPanel() {
                       }}
                       className="text-[10px] text-white/40 hover:text-white/70"
                     >
-                      {allSelected ? "全不选" : "全选"}
+                      {allSelected ? t("全不选") : t("全选")}
                     </button>
                   </div>
                   <div className="mt-0.5 space-y-0.5">
@@ -458,7 +470,7 @@ export function CleanupPanel() {
                           <span className="min-w-0 flex-1">
                             <span className="flex min-w-0 items-start gap-1.5">
                               <span className="min-w-0 break-all text-[11px] leading-snug text-white/80">
-                                {it.label}
+                                {tb(it.label)}
                               </span>
                               <span
                                 className={
@@ -466,7 +478,7 @@ export function CleanupPanel() {
                                   risk.cls
                                 }
                               >
-                                {risk.label}
+                                {t(risk.label)}
                               </span>
                             </span>
                           </span>
@@ -476,7 +488,7 @@ export function CleanupPanel() {
                             </span>
                             <span
                               role="button"
-                              title="加入排除列表（永不清理）"
+                              title={t("加入排除列表（永不清理）")}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 excludeItem(it);
@@ -511,16 +523,16 @@ export function CleanupPanel() {
             {cleaning ? (
               <>
                 <span className="cleanup-spinner inline-block h-3 w-3 rounded-full border-2 border-white/25 border-t-white" />
-                正在清理…（移入废纸篓）
+                {t("正在清理…（移入废纸篓）")}
               </>
             ) : confirmClear ? (
-              "确认清理（移入废纸篓）"
+              t("确认清理（移入废纸篓）")
             ) : (
-              "清理选中"
+              t("清理选中")
             )}
           </button>
           <div className="mt-1 text-[10px] leading-snug text-white/40">
-            清理项先移入废纸篓，可在「废纸篓」中恢复。谨慎/危险项需手动勾选，绝不自动清理。
+            {t("清理项先移入废纸篓，可在「废纸篓」中恢复。谨慎/危险项需手动勾选，绝不自动清理。")}
           </div>
         </div>
       )}
@@ -529,18 +541,18 @@ export function CleanupPanel() {
       {tab === "analysis" && (
         <div className="mt-2">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[10px] text-white/45">空间占用 Top & 大文件</span>
+            <span className="text-[10px] text-white/45">{t("空间占用 Top & 大文件")}</span>
             <button
               onClick={loadAnalysis}
               disabled={analysisBusy}
               className="text-[11px] text-white/60 hover:text-white/90 disabled:opacity-40"
             >
-              {analysisBusy ? "分析中…" : "重新分析"}
+              {analysisBusy ? t("分析中…") : t("重新分析")}
             </button>
           </div>
 
           <div className="mb-2 flex items-center gap-2">
-            <span className="text-[10px] text-white/45">大文件阈值</span>
+            <span className="text-[10px] text-white/45">{t("大文件阈值")}</span>
             {[200, 500, 1000, 2000].map((v) => (
               <button
                 key={v}
@@ -564,7 +576,7 @@ export function CleanupPanel() {
           <div className="thin-scroll max-h-44 space-y-2 overflow-y-auto pr-1">
             <div>
               <div className="text-[11px] font-medium text-white/75">
-                占用排行（按文件夹）
+                {t("占用排行（按文件夹）")}
               </div>
               <div className="mt-0.5 space-y-0.5">
                 {(bundles ?? []).slice(0, 15).map((b) => (
@@ -575,14 +587,14 @@ export function CleanupPanel() {
                   />
                 ))}
                 {(bundles ?? []).length === 0 && (
-                  <div className="text-[10px] text-white/40">无数据</div>
+                  <div className="text-[10px] text-white/40">{t("无数据")}</div>
                 )}
               </div>
             </div>
 
             <div>
               <div className="text-[11px] font-medium text-white/75">
-                大文件 / 疑似重复
+                {t("大文件 / 疑似重复")}
               </div>
               <div className="mt-0.5 space-y-0.5">
                 {(large ?? []).slice(0, 20).map((f) => (
@@ -595,7 +607,7 @@ export function CleanupPanel() {
                     </span>
                     {f.duplicate && (
                       <span className="shrink-0 rounded bg-amber-500/15 px-1 text-[9px] text-amber-300">
-                        疑似重复
+                        {t("疑似重复")}
                       </span>
                     )}
                     <span className="shrink-0 text-[10px] text-white/50">
@@ -611,13 +623,13 @@ export function CleanupPanel() {
                           : "bg-white/10 text-white/60 hover:bg-white/20")
                       }
                     >
-                      {pendingLarge === f.id ? "确认删除" : "移入废纸篓"}
+                      {pendingLarge === f.id ? t("确认删除") : t("移入废纸篓")}
                     </button>
                   </div>
                 ))}
                 {(large ?? []).length === 0 && (
                   <div className="text-[10px] text-white/40">
-                    {analysisBusy ? "分析中…" : "无大文件"}
+                    {analysisBusy ? t("分析中…") : t("无大文件")}
                   </div>
                 )}
               </div>
@@ -631,10 +643,11 @@ export function CleanupPanel() {
         <div className="mt-2 space-y-2">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-[12px] text-white/85">自动清理（仅安全项）</div>
+              <div className="text-[12px] text-white/85">{t("自动清理（仅安全项）")}</div>
               <div className="text-[10px] text-white/40">
-                后台定时清理浏览器/系统/开发缓存，上次：
-                {lastRunText(settings.last_auto_clean_ts)}
+                {t("后台定时清理浏览器/系统/开发缓存，上次：{time}", {
+                  time: lastRunText(settings.last_auto_clean_ts),
+                })}
               </div>
             </div>
             <button
@@ -661,12 +674,12 @@ export function CleanupPanel() {
           </div>
 
           <div className="flex items-center justify-between">
-            <span className="text-[12px] text-white/85">清理周期</span>
+            <span className="text-[12px] text-white/85">{t("清理周期")}</span>
             <div className="flex gap-1">
               {[
-                { v: 1, label: "每天" },
-                { v: 7, label: "每周" },
-                { v: 30, label: "每月" },
+                { v: 1, label: "每天" as TranslationKey },
+                { v: 7, label: "每周" as TranslationKey },
+                { v: 30, label: "每月" as TranslationKey },
               ].map((o) => (
                 <button
                   key={o.v}
@@ -678,13 +691,13 @@ export function CleanupPanel() {
                       : "bg-white/5 text-white/45 hover:text-white/70")
                   }
                 >
-                  {o.label}
+                  {t(o.label)}
                 </button>
               ))}
             </div>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-[12px] text-white/85">下载过期天数</span>
+            <span className="text-[12px] text-white/85">{t("下载过期天数")}</span>
             <input
               type="number"
               min={1}
@@ -702,7 +715,7 @@ export function CleanupPanel() {
             />
           </div>
           <div className="text-[10px] leading-snug text-white/40">
-            自动清理只动「安全」级缓存，不会触碰 App 数据、应用残留与文件，且同样先移入废纸篓。
+            {t("自动清理只动「安全」级缓存，不会触碰 App 数据、应用残留与文件，且同样先移入废纸篓。")}
           </div>
         </div>
       )}
@@ -710,46 +723,46 @@ export function CleanupPanel() {
       {tab === "trash" && (
         <div className="mt-2">
           <div className="mb-1.5 flex items-center justify-between">
-            <span className="text-[10px] text-white/45">本应用移入废纸篓的项</span>
+            <span className="text-[10px] text-white/45">{t("本应用移入废纸篓的项")}</span>
             <button
               onClick={emptyTrashItems}
               disabled={trashBusy}
               className="text-[11px] text-white/60 hover:text-white/90 disabled:opacity-40"
             >
-              {trashBusy ? "处理中…" : "清空本应用项"}
+              {trashBusy ? t("处理中…") : t("清空本应用项")}
             </button>
           </div>
           <div className="thin-scroll max-h-44 space-y-1 overflow-y-auto pr-1">
-            {(trashItems ?? []).map((t) => (
-              <div key={t.id} className="flex items-center justify-between gap-2">
+            {(trashItems ?? []).map((item) => (
+              <div key={item.id} className="flex items-center justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div
                     className="truncate text-[11px] text-white/80"
-                    title={t.original_path}
+                    title={item.original_path}
                   >
-                    {t.name}
+                    {item.name}
                   </div>
                   <div className="text-[9px] text-white/35">
-                    {trashTime(t.moved_at)} · {fmtBytes(t.size_bytes)}
+                    {trashTime(item.moved_at)} · {fmtBytes(item.size_bytes)}
                   </div>
                 </div>
                 <button
-                  onClick={() => restoreTrash(t)}
+                  onClick={() => restoreTrash(item)}
                   disabled={trashBusy}
                   className="shrink-0 rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-white/65 hover:bg-white/20 disabled:opacity-40"
                 >
-                  恢复
+                  {t("恢复")}
                 </button>
               </div>
             ))}
             {(trashItems ?? []).length === 0 && (
               <div className="text-[10px] text-white/40">
-                {trashBusy ? "加载中…" : "暂无本应用移入的项"}
+                {trashBusy ? t("加载中…") : t("暂无本应用移入的项")}
               </div>
             )}
           </div>
           <div className="mt-1 text-[10px] leading-snug text-white/40">
-            这里的项来自清理操作；清空才真正释放磁盘空间。也可在 Finder 废纸篓中手动恢复。
+            {t("这里的项来自清理操作；清空才真正释放磁盘空间。也可在 Finder 废纸篓中手动恢复。")}
           </div>
         </div>
       )}
@@ -765,7 +778,7 @@ export function CleanupPanel() {
             onClick={() => setResultError("")}
             className="shrink-0 text-[10px] text-white/40 hover:text-white/80"
           >
-            关闭
+            {t("关闭")}
           </button>
         </div>
       )}
@@ -778,13 +791,15 @@ export function CleanupPanel() {
             </span>
             <div className="min-w-0 flex-1">
             <div className="text-[11px] font-medium text-emerald-200">
-              已转移 {fmtBytes(result.freed_bytes)} 至废纸篓
+              {t("已转移 {size} 至废纸篓", { size: fmtBytes(result.freed_bytes) })}
             </div>
             <div className="mt-0.5 text-[10px] leading-snug text-white/60">
-              成功 {result.cleaned_count} 项，已移入废纸篓（可恢复；清空废纸篓后才真正释放空间）
+              {t("成功 {count} 项，已移入废纸篓（可恢复；清空废纸篓后才真正释放空间）", {
+                count: result.cleaned_count,
+              })}
               {result.failed.length > 0
-                ? ` · ${result.failed.length} 项未能清理`
-                : " · 全部成功"}
+                ? t(" · {count} 项未能清理", { count: result.failed.length })
+                : t(" · 全部成功")}
             </div>
             {result.cleaned_count > 0 && (
               <button
@@ -792,7 +807,7 @@ export function CleanupPanel() {
                 disabled={trashBusy}
                 className="mt-1 rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/60 hover:bg-white/20 disabled:opacity-40"
               >
-                清空本应用移入的废纸篓项（释放空间）
+                {t("清空本应用移入的废纸篓项（释放空间）")}
               </button>
             )}
               {result.failed.length > 0 && (
@@ -801,7 +816,7 @@ export function CleanupPanel() {
                     onClick={() => setShowFailed((v) => !v)}
                     className="text-[10px] text-amber-300/90 hover:text-amber-200"
                   >
-                    {showFailed ? "收起" : "查看"}未清理项
+                    {showFailed ? t("收起未清理项") : t("查看未清理项")}
                   </button>
                   {showFailed && (
                     <div className="thin-scroll mt-1 max-h-20 space-y-0.5 overflow-y-auto pr-1">
@@ -811,14 +826,13 @@ export function CleanupPanel() {
                           className="truncate text-[10px] text-white/50"
                           title={f.detail}
                         >
-                          · {f.detail || f.id}
+                          · {tb(f.detail || f.id)}
                         </div>
                       ))}
                     </div>
                   )}
                   <div className="mt-1 text-[10px] leading-snug text-white/40">
-                    多为系统保护目录（TCC）。需清理请到 系统设置 → 隐私与安全性 →
-                    完全磁盘访问权限 为本 App 授权后重试。
+                    {t("多为系统保护目录（TCC）。需清理请到 系统设置 → 隐私与安全性 → 完全磁盘访问权限 为本 App 授权后重试。")}
                   </div>
                 </div>
               )}
@@ -827,7 +841,7 @@ export function CleanupPanel() {
               onClick={() => setResult(null)}
               className="shrink-0 text-[10px] text-white/40 hover:text-white/80"
             >
-              关闭
+              {t("关闭")}
             </button>
           </div>
         </div>

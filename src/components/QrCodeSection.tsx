@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { Download, QrCode, CircleAlert, Check } from "lucide-react";
 import { api } from "../ipc";
+import { useT, tb } from "../i18n";
+
+type T = ReturnType<typeof useT>;
 
 /**
  * 二维码静默区（quiet zone）：ISO/IEC 18004 要求码符号四周至少 4 个模块宽的空白。
@@ -22,21 +25,22 @@ function normalizeUrl(raw: string): string {
 }
 
 /** 做基本合法性校验：必须能解析成 http(s) URL。返回错误文案，合法时返回 null。 */
-function validateUrl(v: string): string | null {
+function validateUrl(v: string, t: T): string | null {
   if (!v) return null;
   try {
     const u = new URL(v);
     if (u.protocol !== "http:" && u.protocol !== "https:") {
-      return "仅支持 http / https 链接";
+      return t("仅支持 http / https 链接");
     }
-    if (!u.hostname) return "链接缺少域名";
+    if (!u.hostname) return t("链接缺少域名");
     return null;
   } catch {
-    return "链接格式不正确，请检查后重试";
+    return t("链接格式不正确，请检查后重试");
   }
 }
 
 export function QrCodeSection() {
+  const t = useT();
   const [input, setInput] = useState("");
   const [margin, setMargin] = useState(DEFAULT_MARGIN);
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -45,7 +49,7 @@ export function QrCodeSection() {
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
 
   const normalized = useMemo(() => normalizeUrl(input), [input]);
-  const urlError = useMemo(() => validateUrl(normalized), [normalized]);
+  const urlError = useMemo(() => validateUrl(normalized, t), [normalized, t]);
 
   // 输入变化即重新生成（含静默区），空输入清空。qrcode 生成为纯前端，不触发任何权限。
   useEffect(() => {
@@ -69,13 +73,13 @@ export function QrCodeSection() {
       .catch((e) => {
         if (!cancelled) {
           setDataUrl(null);
-          setError(`生成失败：${e}`);
+          setError(t("生成失败：{detail}", { detail: tb(e) }));
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [normalized, urlError, margin]);
+  }, [normalized, urlError, margin, t]);
 
   async function savePng() {
     if (!dataUrl) return;
@@ -83,9 +87,9 @@ export function QrCodeSection() {
     setSaveMsg(null);
     try {
       const path = await api.saveQrcodePng(dataUrl);
-      setSaveMsg(`已保存到 ${path}`);
+      setSaveMsg(t("已保存到 {path}", { path }));
     } catch (e) {
-      setSaveMsg(`保存失败：${e}`);
+      setSaveMsg(t("保存失败：{detail}", { detail: tb(e) }));
     } finally {
       setSaving(false);
     }
@@ -95,10 +99,10 @@ export function QrCodeSection() {
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center gap-1.5">
         <QrCode size={14} className="text-indigo-300/90" />
-        <span className="text-[13px] font-medium text-white/90">生成二维码</span>
+        <span className="text-[13px] font-medium text-white/90">{t("生成二维码")}</span>
       </div>
       <p className="mt-1 text-[10px] leading-snug text-white/35">
-        输入链接生成可扫描的二维码，四周保留白边（静默区）
+        {t("输入链接生成可扫描的二维码，四周保留白边（静默区）")}
       </p>
 
       <input
@@ -107,14 +111,14 @@ export function QrCodeSection() {
           setInput(e.target.value);
           setSaveMsg(null);
         }}
-        placeholder="example.com 或 https://example.com/path"
+        placeholder={t("example.com 或 https://example.com/path")}
         spellCheck={false}
         autoCapitalize="off"
         className="mt-2 w-full rounded border border-white/10 bg-black/20 px-2 py-1.5 text-[11px] text-white/85 placeholder:text-white/30 focus:border-indigo-400/50 focus:outline-none"
       />
 
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="shrink-0 text-[10px] text-white/45">白边宽度</span>
+        <span className="shrink-0 text-[10px] text-white/45">{t("白边宽度")}</span>
         <div className="flex flex-1 items-center gap-2">
           <input
             type="range"
@@ -127,7 +131,7 @@ export function QrCodeSection() {
               setSaveMsg(null);
             }}
             className="h-1 flex-1 cursor-pointer accent-indigo-400"
-            aria-label="二维码白边宽度"
+            aria-label={t("二维码白边宽度")}
           />
           <span className="w-8 shrink-0 text-right font-mono text-[10px] text-white/55">
             {margin}
@@ -146,7 +150,7 @@ export function QrCodeSection() {
         <div className="mt-2.5 flex flex-col items-center">
           {/* 内边距叠加在二维码自带静默区之外，确保视觉上黑码不贴边 */}
           <div className="rounded-lg bg-white p-2.5 shadow-inner">
-            <img src={dataUrl} alt="生成的二维码" className="h-[150px] w-[150px]" />
+            <img src={dataUrl} alt={t("生成的二维码")} className="h-[150px] w-[150px]" />
           </div>
           <div className="mt-2 text-[10px] break-all text-center text-white/40" title={normalized}>
             {normalized}
@@ -157,11 +161,11 @@ export function QrCodeSection() {
             className="mt-2 flex items-center gap-1.5 rounded-md bg-indigo-500/20 px-3 py-1 text-[11px] text-indigo-100 transition hover:bg-indigo-500/35 disabled:opacity-40"
           >
             <Download size={12} />
-            {saving ? "保存中…" : "保存图片"}
+            {saving ? t("保存中…") : t("保存图片")}
           </button>
           {saveMsg && (
             <div className="mt-1.5 flex items-center gap-1 text-center text-[10px] leading-snug text-white/45">
-              {saveMsg.startsWith("已保存") && <Check size={11} className="shrink-0 text-emerald-300/80" />}
+              {saveMsg.startsWith(t("已保存")) && <Check size={11} className="shrink-0 text-emerald-300/80" />}
               <span className="break-all">{saveMsg}</span>
             </div>
           )}

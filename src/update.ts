@@ -1,5 +1,6 @@
 import { check } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { t, tb } from "./i18n";
 
 export interface CheckResult {
   status: "latest" | "updated" | "error";
@@ -17,7 +18,7 @@ export async function checkAndInstall(): Promise<CheckResult> {
   try {
     const update = await check();
     if (!update) {
-      return { status: "latest", message: "已是最新版本" };
+      return { status: "latest", message: t("已是最新版本") };
     }
     await update.downloadAndInstall();
     try {
@@ -25,8 +26,8 @@ export async function checkAndInstall(): Promise<CheckResult> {
     } catch {
       /* 极少数情况下 relaunch 需手动执行 */
     }
-    return { status: "updated", message: `已更新到 v${update.version}` };
+    return { status: "updated", message: t("已更新到 v{version}", { version: update.version }) };
   } catch (e) {
-    return { status: "error", message: `更新失败：${e}` };
+    return { status: "error", message: t("更新失败：{detail}", { detail: tb(e) }) };
   }
 }

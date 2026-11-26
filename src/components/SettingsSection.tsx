@@ -3,6 +3,8 @@ import { api } from "../ipc";
 import { KeyForm } from "./KeyForm";
 import { ShortcutSection } from "./ShortcutSection";
 import { AuthSection } from "./AuthSection";
+import { LanguageSection } from "./LanguageSection";
+import { useT } from "../i18n";
 
 interface Props {
   version: string;
@@ -42,6 +44,7 @@ export function SettingsSection({
   onCheckPermissions,
   onClose,
 }: Props) {
+  const t = useT();
   const [keyCount, setKeyCount] = useState<number | null>(null);
   const [addingKey, setAddingKey] = useState(false);
   const [proxy, setProxy] = useState("");
@@ -83,12 +86,12 @@ export function SettingsSection({
   return (
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center justify-between">
-        <span className="text-[13px] font-medium text-white/90">设置</span>
+        <span className="text-[13px] font-medium text-white/90">{t("设置")}</span>
         <button
           onClick={onClose}
           className="text-[10px] text-white/45 transition hover:text-white/75"
         >
-          收起
+          {t("收起")}
         </button>
       </div>
 
@@ -96,11 +99,14 @@ export function SettingsSection({
         {/* 账号登录（登录层功能总入口） */}
         <AuthSection />
 
+        {/* 界面语言 */}
+        <LanguageSection />
+
         {/* 开机自启 */}
         <div className="flex items-center justify-between py-2">
           <div>
-            <div className={rowLabel}>开机自启</div>
-            <div className={rowHint}>登录时自动启动，常驻菜单栏</div>
+            <div className={rowLabel}>{t("开机自启")}</div>
+            <div className={rowHint}>{t("登录时自动启动，常驻菜单栏")}</div>
           </div>
           <button
             role="switch"
@@ -124,11 +130,11 @@ export function SettingsSection({
         <div className="py-2">
           <div className="flex items-center justify-between">
             <div>
-              <div className={rowLabel}>检查更新</div>
-              <div className={rowHint}>当前版本 v{version}</div>
+              <div className={rowLabel}>{t("检查更新")}</div>
+              <div className={rowHint}>{t("当前版本 v{version}", { version })}</div>
             </div>
             <button onClick={onCheckUpdate} disabled={updating} className={actionBtn}>
-              {updating ? "检查中…" : "检查"}
+              {updating ? t("检查中…") : t("检查")}
             </button>
           </div>
           {updateMsg && (
@@ -142,15 +148,15 @@ export function SettingsSection({
         <div className="py-2">
           <div className="flex items-center justify-between">
             <div>
-              <div className={rowLabel}>权限自检</div>
-              <div className={rowHint}>检查自动化等授权是否仍生效</div>
+              <div className={rowLabel}>{t("权限自检")}</div>
+              <div className={rowHint}>{t("检查自动化等授权是否仍生效")}</div>
             </div>
             <button
               onClick={onCheckPermissions}
               disabled={permChecking}
               className={actionBtn}
             >
-              {permChecking ? "检查中…" : "检查"}
+              {permChecking ? t("检查中…") : t("检查")}
             </button>
           </div>
           {permissionSummary && (
@@ -159,7 +165,7 @@ export function SettingsSection({
             </div>
           )}
           <div className="mt-1 text-[10px] leading-snug text-white/30">
-            检查可能弹出系统授权窗口；每次换包后需执行{" "}
+            {t("检查可能弹出系统授权窗口；每次换包后需执行")}{" "}
             <code className="select-all font-mono text-white/45">
               tccutil reset All com.switchkit.app
             </code>
@@ -168,12 +174,9 @@ export function SettingsSection({
 
         {/* 日出日落自动切换：复用系统 Auto，不读定位、不自研天文算法 */}
         <div className="py-2">
-          <div className={rowLabel}>日出日落自动切换</div>
+          <div className={rowLabel}>{t("日出日落自动切换")}</div>
           <div className="mt-0.5 text-[10px] leading-snug text-white/35">
-            面板「外观」点第三次进入「自动」，由 macOS 按日出/日落或夜览日程切换；
-            切换可能有延迟，SwitchKit 不读取定位、不常驻计算。macOS 12 需先在
-            「系统偏好设置 → 显示器 → 夜览」把日程设为「日落到日出」，13+ 在
-            「系统设置 → 外观」把外观设为自动。
+            {t("面板「外观」点第三次进入「自动」，由 macOS 按日出/日落或夜览日程切换；切换可能有延迟，SwitchKit 不读取定位、不常驻计算。macOS 12 需先在「系统偏好设置 → 显示器 → 夜览」把日程设为「日落到日出」，13+ 在「系统设置 → 外观」把外观设为自动。")}
           </div>
         </div>
 
@@ -184,9 +187,11 @@ export function SettingsSection({
         <div className="py-2">
           <div className="flex items-center justify-between">
             <div>
-              <div className={rowLabel}>网络代理</div>
+              <div className={rowLabel}>{t("网络代理")}</div>
               <div className={rowHint}>
-                {savedProxy ? `当前 ${savedProxy}` : "余额查询直连，境外站点可填代理"}
+                {savedProxy
+                  ? t("当前 {proxy}", { proxy: savedProxy })
+                  : t("余额查询直连，境外站点可填代理")}
               </div>
             </div>
             <button
@@ -194,13 +199,13 @@ export function SettingsSection({
               disabled={proxySaving || proxy.trim() === savedProxy}
               className={actionBtn}
             >
-              {proxySaving ? "保存中…" : "保存"}
+              {proxySaving ? t("保存中…") : t("保存")}
             </button>
           </div>
           <input
             value={proxy}
             onChange={(e) => setProxy(e.target.value)}
-            placeholder="http://127.0.0.1:7897（留空直连）"
+            placeholder={t("http://127.0.0.1:7897（留空直连）")}
             className="mt-1.5 w-full rounded border border-white/10 bg-black/20 px-2 py-1 text-[11px] text-white/85 placeholder:text-white/30 focus:border-indigo-400/50 focus:outline-none"
           />
         </div>
@@ -210,16 +215,16 @@ export function SettingsSection({
           <div className="py-2">
             <div className="flex items-center justify-between">
               <div>
-                <div className={rowLabel}>模型余额账号</div>
+                <div className={rowLabel}>{t("模型余额账号")}</div>
                 <div className={rowHint}>
-                  DeepSeek / Kimi / 智谱 / 阶跃 / OpenRouter 等，60 秒自动刷新
+                  {t("DeepSeek / Kimi / 智谱 / 阶跃 / OpenRouter 等，60 秒自动刷新")}
                 </div>
               </div>
               <button
                 onClick={() => setAddingKey((v) => !v)}
                 className={actionBtn}
               >
-                {addingKey ? "取消" : "添加"}
+                {addingKey ? t("取消") : t("添加")}
               </button>
             </div>
             {addingKey && (

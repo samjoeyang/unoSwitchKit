@@ -1,7 +1,10 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { StatusDot } from "./StatusDot";
 import { LockBadge } from "./LockBadge";
+import { useT, type TranslationKey, type TranslateVars } from "../i18n";
 import type { AppearanceMode, ToggleStates } from "../types";
+
+type Translate = (key: TranslationKey, vars?: TranslateVars) => string;
 
 export type ToggleKey =
   | "dark_mode"
@@ -21,8 +24,8 @@ export type ToggleKey =
 
 interface Item {
   key: ToggleKey;
-  label: string;
-  status: (s: ToggleStates) => string;
+  label: TranslationKey;
+  status: (s: ToggleStates, t: Translate) => string;
   active: (s: ToggleStates) => boolean;
   /** 不可见条件（返回 true 则隐藏该项） */
   hidden?: (s: ToggleStates) => boolean;
@@ -37,49 +40,49 @@ const ITEMS: Item[] = [
   {
     key: "dark_mode",
     label: "外观",
-    status: (s) => (s.dark_mode ? "深色" : "浅色"),
+    status: (s, t) => t(s.dark_mode ? "深色" : "浅色"),
     active: (s) => s.dark_mode,
   },
   {
     key: "desktop_hidden",
     label: "隐藏桌面",
-    status: (s) => (s.desktop_hidden ? "已隐藏" : "显示中"),
+    status: (s, t) => t(s.desktop_hidden ? "已隐藏" : "显示中"),
     active: (s) => s.desktop_hidden,
   },
   {
     key: "prevent_sleep",
     label: "阻止睡眠",
-    status: (s) => (s.prevent_sleep ? "生效中" : "关闭"),
+    status: (s, t) => t(s.prevent_sleep ? "生效中" : "关闭"),
     active: (s) => s.prevent_sleep,
   },
   {
     key: "empty_trash",
     label: "清空废纸篓",
-    status: (s) => `${s.trash_count} 项`,
+    status: (s, t) => t("{count} 项", { count: s.trash_count }),
     active: () => false,
   },
   {
     key: "hide_dock",
     label: "隐藏 Dock",
-    status: (s) => (s.hide_dock ? "已隐藏" : "显示中"),
+    status: (s, t) => t(s.hide_dock ? "已隐藏" : "显示中"),
     active: (s) => s.hide_dock,
   },
   {
     key: "show_hidden_files",
     label: "显示隐藏文件",
-    status: (s) => (s.show_hidden_files ? "显示中" : "隐藏中"),
+    status: (s, t) => t(s.show_hidden_files ? "显示中" : "隐藏中"),
     active: (s) => s.show_hidden_files,
   },
   {
     key: "screen_clean",
     label: "屏幕清洁",
-    status: (s) => (s.screen_clean ? "已收起窗口" : "一键收起"),
+    status: (s, t) => t(s.screen_clean ? "已收起窗口" : "一键收起"),
     active: (s) => s.screen_clean,
   },
   {
     key: "stage_manager",
     label: "台前调度",
-    status: (s) => (s.stage_manager ? "开" : "关"),
+    status: (s, t) => t(s.stage_manager ? "开" : "关"),
     active: (s) => s.stage_manager,
     // macOS 13 以下不支持，直接不显示
     hidden: (s) => !s.stage_manager_available,
@@ -87,37 +90,37 @@ const ITEMS: Item[] = [
   {
     key: "lock_screen",
     label: "锁定屏幕",
-    status: () => "点击锁定",
+    status: (_s, t) => t("点击锁定"),
     active: () => false,
   },
   {
     key: "clear_clipboard",
     label: "清空剪贴板",
-    status: () => "点击清空",
+    status: (_s, t) => t("点击清空"),
     active: () => false,
   },
   {
     key: "screensaver",
     label: "屏幕保护",
-    status: () => "点击启动",
+    status: (_s, t) => t("点击启动"),
     active: () => false,
   },
   {
     key: "close_all_apps",
     label: "关闭所有应用",
-    status: () => "逐个退出",
+    status: (_s, t) => t("逐个退出"),
     active: () => false,
   },
   {
     key: "flush_dns",
     label: "刷新 DNS",
-    status: () => "点击刷新",
+    status: (_s, t) => t("点击刷新"),
     active: () => false,
   },
   {
     key: "system_screenshot",
     label: "截屏录屏",
-    status: () => "打开系统工具栏",
+    status: (_s, t) => t("打开系统工具栏"),
     active: () => false,
   },
 ];
@@ -125,7 +128,8 @@ const ITEMS: Item[] = [
 /** 默认顺序，也是 settings.toggle_order 为空时的顺序。 */
 export const ALL_TOGGLE_KEYS: ToggleKey[] = ITEMS.map((it) => it.key);
 
-export const APPEARANCE_TEXT: Record<AppearanceMode, string> = {
+// 值仍是稳定中文原文 key，由渲染处调用 t()；导出形态保持不变。
+export const APPEARANCE_TEXT: Record<AppearanceMode, TranslationKey> = {
   light: "浅色 · 点按切深色",
   dark: "深色 · 点按切自动",
   auto: "自动 · 日出日落",
@@ -204,6 +208,7 @@ export function ToggleGrid({
   order = ALL_TOGGLE_KEYS,
   onReorder,
 }: Props) {
+  const t = useT();
   const [preview, setPreview] = useState<ToggleKey[] | null>(null);
   const [dragKey, setDragKey] = useState<ToggleKey | null>(null);
   const shown = preview ?? order;
@@ -265,9 +270,9 @@ export function ToggleGrid({
         const status =
           statusOverrides?.[it.key] ??
           (isAppearance
-            ? APPEARANCE_TEXT[appearanceMode!]
+            ? t(APPEARANCE_TEXT[appearanceMode!])
             : states
-              ? it.status(states)
+              ? it.status(states, t)
               : "—");
         const active = isAppearance
           ? appearanceMode !== "light"
@@ -296,7 +301,7 @@ export function ToggleGrid({
           >
             <div className="flex w-full items-center justify-between">
               <span className="flex items-center gap-1 text-[13px] font-medium text-white/90">
-                {it.label}
+                {t(it.label)}
                 {GATED_TOGGLES.has(it.key) && <LockBadge />}
               </span>
               {editMode ? (
@@ -306,7 +311,7 @@ export function ToggleGrid({
               )}
             </div>
             <span className="mt-1 text-[11px] text-white/50">
-              {busy ? "处理中…" : status}
+              {busy ? t("处理中…") : status}
             </span>
           </button>
         );

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { StatusDot } from "./StatusDot";
 import { LockBadge } from "./LockBadge";
 import { api } from "../ipc";
+import { useT, tb } from "../i18n";
 import { gateFrontend } from "../authGate";
 import type { BtDevice } from "../types";
 
 /// 蓝牙设备区：列出已配对设备，一键连接 / 断开（系统框架 IOBluetooth，经 Swift 守护）。
 export function BluetoothSection() {
+  const t = useT();
   const [devices, setDevices] = useState<BtDevice[] | null>(null);
   const [busyAddr, setBusyAddr] = useState<string | null>(null);
 
@@ -22,13 +24,13 @@ export function BluetoothSection() {
     refresh();
     // 守护启动后 IOBluetooth 有 ~14.5s 冷启动（bluetoothd 预热），期间缓存为空；
     // 轮询让列表在预热完成后自动出现，无需手动隐藏/显示面板。
-    const t = setInterval(refresh, 5000);
+    const timer = setInterval(refresh, 5000);
     const onVis = () => {
       if (!document.hidden) refresh();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
-      clearInterval(t);
+      clearInterval(timer);
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [refresh]);
@@ -41,7 +43,7 @@ export function BluetoothSection() {
       else await api.btConnect(d.address);
       await refresh();
     } catch (e) {
-      alert(`蓝牙操作失败：${e}`);
+      alert(t("蓝牙操作失败：{detail}", { detail: tb(e) }));
     } finally {
       setBusyAddr(null);
     }
@@ -56,10 +58,13 @@ export function BluetoothSection() {
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1 text-[13px] font-medium text-white/90">
-          蓝牙设备 <LockBadge />
+          {t("蓝牙设备")} <LockBadge />
         </span>
         <span className="text-[10px] text-white/40">
-          {devices.filter((d) => d.connected).length}/{devices.length} 已连接
+          {t("{connected}/{total} 已连接", {
+            connected: devices.filter((d) => d.connected).length,
+            total: devices.length,
+          })}
         </span>
       </div>
       {/* 设备较多时限高滚动，最多显示约 3 个设备，避免整块过高 */}
@@ -92,7 +97,7 @@ export function BluetoothSection() {
                     : "bg-white/10 text-white/50 hover:bg-white/20")
                 }
               >
-                {busy ? "连接中…" : d.connected ? "断开" : "连接"}
+                {busy ? t("连接中…") : d.connected ? t("断开") : t("连接")}
               </button>
             </div>
           );

@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { SystemStats } from "../types";
 import { api } from "../ipc";
+import { useT, tb } from "../i18n";
 import { gateFrontend } from "../authGate";
 import { LockBadge } from "./LockBadge";
 
@@ -50,10 +51,18 @@ function StatBar({
 }
 
 /** 上下行合并为一个面板，两个速率用 "/" 分隔 */
-function NetPanel({ down, up }: { down: string; up: string }) {
+function NetPanel({
+  down,
+  up,
+  label,
+}: {
+  down: string;
+  up: string;
+  label: string;
+}) {
   return (
     <div className="flex min-w-0 flex-col justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-      <span className="text-[10px] text-white/50">↓ 下行 / ↑ 上行</span>
+      <span className="text-[10px] text-white/50">{label}</span>
       <div className="mt-1 text-[11px] font-medium leading-tight">
         <span className="text-emerald-200">{down}</span>
         <span className="text-white/40"> / </span>
@@ -64,6 +73,7 @@ function NetPanel({ down, up }: { down: string; up: string }) {
 }
 
 export function ResourcePanel() {
+  const t = useT();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string>("");
   const [stats, setStats] = useState<SystemStats | null>(null);
@@ -81,10 +91,10 @@ export function ResourcePanel() {
       }
     };
     tick();
-    const t = setInterval(tick, 2000);
+    const timer = setInterval(tick, 2000);
     return () => {
       alive = false;
-      clearInterval(t);
+      clearInterval(timer);
     };
   }, []);
 
@@ -96,10 +106,14 @@ export function ResourcePanel() {
       const r = await api.releaseMemory();
       const freedCacheMb = Math.max(0, r.before.cached_mb - r.after.cached_mb);
       setMsg(
-        `内存已释放：回收缓存 ${fmtMB(freedCacheMb)}；已用（不含缓存）${fmtMB(r.before.used_mb)} → ${fmtMB(r.after.used_mb)}`,
+        t("内存已释放：回收缓存 {cache}；已用（不含缓存）{before} → {after}", {
+          cache: fmtMB(freedCacheMb),
+          before: fmtMB(r.before.used_mb),
+          after: fmtMB(r.after.used_mb),
+        })
       );
     } catch (e) {
-      setMsg(`释放失败：${e}`);
+      setMsg(t("释放失败：{detail}", { detail: tb(e) }));
     } finally {
       setBusy(false);
     }
@@ -122,10 +136,11 @@ export function ResourcePanel() {
         <NetPanel
           down={stats ? fmtSpeed(stats.net_down_bps) : "—"}
           up={stats ? fmtSpeed(stats.net_up_bps) : "—"}
+          label={t("↓ 下行 / ↑ 上行")}
         />
       </div>
       <StatBar
-        label="内存"
+        label={t("内存")}
         value={
           stats
             ? `${fmtBytes(stats.mem_used_bytes)} / ${fmtBytes(stats.mem_total_bytes)}`
@@ -143,7 +158,7 @@ export function ResourcePanel() {
                   disabled={busy}
                   className="rounded-lg border border-white/10 bg-indigo-500/15 px-2.5 py-1 text-[11px] font-medium text-indigo-100 hover:bg-indigo-500/25 disabled:opacity-50"
                 >
-                  {busy ? "释放中…" : "释放内存"}
+                  {busy ? t("释放中…") : t("释放内存")}
                 </button>
               </div>
             </div>

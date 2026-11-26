@@ -1,9 +1,12 @@
+import type { TranslationKey } from "./i18n";
+
 /// 支持余额查询的模型平台清单（与 Rust 侧 balance.rs 的 provider 标识一一对应）。
+/// name / hint 保存的是稳定的中文原文 key，由使用方调用 t() 渲染当前语言。
 export interface ProviderMeta {
   id: string;
-  name: string;
+  name: TranslationKey;
   /// 添加表单里的提示：去哪里拿 Key / 注意事项
-  hint: string;
+  hint: TranslationKey;
   /// 需要额外填写站点地址（中转站）
   needsBaseUrl?: boolean;
   /// Key 输入框占位符
@@ -74,6 +77,6 @@ export const PROVIDERS: ProviderMeta[] = [
   },
 ];
 
-export function providerName(id: string): string {
-  return PROVIDERS.find((p) => p.id === id)?.name ?? id;
+export function providerName(id: string): TranslationKey {
+  return PROVIDERS.find((p) => p.id === id)?.name ?? (id as TranslationKey);
 }

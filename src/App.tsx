@@ -14,6 +14,7 @@ import { useToggleOrder } from "./useToggleOrder";
 import { loadAuth } from "./authStore";
 import { gateFrontend, setRequireLoginHandler } from "./authGate";
 import { getVersion } from "@tauri-apps/api/app";
+import { useT, t as translateNow, tb } from "./i18n";
 import type { AppearanceMode, PermissionState, ToggleStates } from "./types";
 
 const NEXT_APPEARANCE: Record<AppearanceMode, AppearanceMode> = {
@@ -23,6 +24,8 @@ const NEXT_APPEARANCE: Record<AppearanceMode, AppearanceMode> = {
 };
 
 export default function App() {
+  // 组件内用 tr：effect 内有局部变量 t（定时器句柄），避免命名遮蔽
+  const tr = useT();
   const [states, setStates] = useState<ToggleStates | null>(null);
   // 外观三态单独维护：Auto 由系统按日出/日落切换，面板常开时也要跟上
   const [appearanceMode, setAppearanceMode] = useState<AppearanceMode | null>(null);
@@ -108,11 +111,11 @@ export default function App() {
       const bad = s.items.filter((i) => i.status === "denied");
       setPermissionSummary(
         bad.length
-          ? `发现 ${bad.length} 项未生效，详见面板顶部提示`
-          : "未发现明确失效项（灰色项需在实际使用时由系统弹窗确认）"
+          ? tr("发现 {count} 项未生效，详见面板顶部提示", { count: bad.length })
+          : tr("未发现明确失效项（灰色项需在实际使用时由系统弹窗确认）")
       );
     } catch (e) {
-      setPermissionSummary(`检查失败：${e}`);
+      setPermissionSummary(tr("检查失败：{detail}", { detail: tb(e) }));
     } finally {
       setPermChecking(false);
     }
@@ -135,7 +138,8 @@ export default function App() {
     // 任意面板触发登录层功能时：打开设置面板并滚到登录区
     setRequireLoginHandler(() => {
       setShowSettings(true);
-      setNotice("该功能需要登录，请在「账号」处登录");
+      // 回调只在挂载时注册一次，用模块级 t() 读取当前语言，避免闭包过期
+      setNotice(translateNow("该功能需要登录，请在「账号」处登录"));
       // 设置面板自身有 60/260ms 两次贴底滚动，这里放到其后，避免被覆盖
       window.setTimeout(() => {
         document.getElementById("auth-section")?.scrollIntoView({ block: "nearest" });
@@ -220,14 +224,14 @@ export default function App() {
       else if (key === "flush_dns") {
         try {
           await api.flushDns();
-          setDnsStatus("已刷新");
+          setDnsStatus(tr("已刷新"));
         } catch {
-          setDnsStatus("刷新失败");
+          setDnsStatus(tr("刷新失败"));
         }
       }
       await refresh();
     } catch (e) {
-      alert(`操作失败：${e}`);
+      alert(tr("操作失败：{detail}", { detail: tb(e) }));
     } finally {
       setBusy(null);
     }
@@ -239,24 +243,24 @@ export default function App() {
     try {
       await api.setLaunchAtLogin(next);
       setLaunch(next);
-      setNotice(next ? "已开启开机自启" : "已关闭开机自启");
+      setNotice(next ? tr("已开启开机自启") : tr("已关闭开机自启"));
     } catch (e) {
-      setNotice(`自启设置失败：${e}`);
+      setNotice(tr("自启设置失败：{detail}", { detail: tb(e) }));
     }
   }
 
   async function onCheckUpdate() {
     if (!updateEnabled) {
-      setUpdateMsg("更新服务尚未配置（暂未提供线上地址）");
+      setUpdateMsg(tr("更新服务尚未配置（暂未提供线上地址）"));
       return;
     }
     setUpdating(true);
-    setUpdateMsg("正在检查更新…");
+    setUpdateMsg(tr("正在检查更新…"));
     try {
       const r = await checkAndInstall();
       setUpdateMsg(r.message);
     } catch (e) {
-      setUpdateMsg(`更新失败：${e}`);
+      setUpdateMsg(tr("更新失败：{detail}", { detail: tb(e) }));
     } finally {
       setUpdating(false);
     }
@@ -288,12 +292,12 @@ export default function App() {
 
       {reordering && (
         <div className="mb-2 flex items-center justify-between rounded-lg border border-indigo-400/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] text-indigo-100">
-          <span>拖动卡片调整顺序，自动保存</span>
+          <span>{tr("拖动卡片调整顺序，自动保存")}</span>
           <button
             onClick={() => void resetToggleOrder()}
             className="rounded px-1.5 py-0.5 text-indigo-200/80 transition hover:bg-white/10"
           >
-            恢复默认
+            {tr("恢复默认")}
           </button>
         </div>
       )}
@@ -352,7 +356,7 @@ export default function App() {
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
-            设置
+            {tr("设置")}
           </button>
           <button
             onClick={() => setReordering((v) => !v)}
@@ -363,7 +367,7 @@ export default function App() {
                 : "text-white/60 hover:text-white/90")
             }
           >
-            {reordering ? "完成排序" : "排序"}
+            {reordering ? tr("完成排序") : tr("排序")}
           </button>
           <button
             onClick={async () => {
@@ -375,11 +379,11 @@ export default function App() {
             }}
             className="rounded-md px-2 py-0.5 text-white/50 transition hover:bg-white/10 hover:text-white/80"
           >
-            退出
+            {tr("退出")}
           </button>
         </div>
         <span className="flex items-center gap-1.5 text-[11px] text-white/50">
-          <StatusDot on={sidecar === true} /> 原生守护
+          <StatusDot on={sidecar === true} /> {tr("原生守护")}
         </span>
       </div>
     </div>

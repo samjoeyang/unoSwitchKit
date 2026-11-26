@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../ipc";
+import { useT, tb } from "../i18n";
 import { loadAuth, useAuth } from "../authStore";
 import type { LoginEvent } from "../types";
 
@@ -8,6 +9,7 @@ import type { LoginEvent } from "../types";
 /// 登录为非阻塞：点按钮只唤起浏览器，真正的交换在 Rust 后台线程完成后
 /// 通过 auth://login-result 事件通知，避免 Webview invoke 长时间 pending 转圈。
 export function AuthSection() {
+  const t = useT();
   const auth = useAuth();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
@@ -20,16 +22,16 @@ export function AuthSection() {
       setBusy(false);
       if (e.payload.ok) {
         await loadAuth();
-        setMsg(e.payload.message);
+        setMsg(tb(e.payload.message));
       } else {
-        setMsg(`登录失败：${e.payload.message}`);
+        setMsg(t("登录失败：{detail}", { detail: tb(e.payload.message) }));
       }
     });
     return () => {
       alive = false;
       void unlisten.then((f) => f());
     };
-  }, []);
+  }, [t]);
 
   async function login() {
     setBusy(true);
@@ -39,7 +41,7 @@ export function AuthSection() {
       // 立即返回：仅表示浏览器已唤起，结果由事件通知
     } catch (e) {
       setBusy(false);
-      setMsg(`启动登录失败：${e}`);
+      setMsg(t("启动登录失败：{detail}", { detail: tb(e) }));
     }
   }
 
@@ -50,7 +52,7 @@ export function AuthSection() {
       // 取消失败不影响 UI：后台超时后仍会 emit 结果
     }
     setBusy(false);
-    setMsg("已取消登录，可重新发起");
+    setMsg(t("已取消登录，可重新发起"));
   }
 
   async function logout() {
@@ -59,9 +61,9 @@ export function AuthSection() {
     try {
       await api.authLogout();
       await loadAuth();
-      setMsg("已退出登录");
+      setMsg(t("已退出登录"));
     } catch (e) {
-      setMsg(`退出失败：${e}`);
+      setMsg(t("退出失败：{detail}", { detail: tb(e) }));
     } finally {
       setBusy(false);
     }
@@ -76,33 +78,33 @@ export function AuthSection() {
     <div className="py-2" id="auth-section">
       <div className="flex items-center justify-between">
         <div>
-          <div className={rowLabel}>账号</div>
+          <div className={rowLabel}>{t("账号")}</div>
           <div className={rowHint}>
             {!auth.configured
-              ? "登录服务尚未配置"
+              ? t("登录服务尚未配置")
               : auth.logged_in
-                ? `${auth.email || auth.name || "已登录"} · ${auth.provider}`
-                : "登录后解锁全部功能"}
+                ? `${auth.email || auth.name || t("已登录")} · ${auth.provider}`
+                : t("登录后解锁全部功能")}
           </div>
         </div>
         {auth.configured &&
           (auth.logged_in ? (
             <button onClick={() => void logout()} disabled={busy} className={actionBtn}>
-              {busy ? "处理中…" : "退出登录"}
+              {busy ? t("处理中…") : t("退出登录")}
             </button>
           ) : busy ? (
             <button onClick={() => void cancel()} className={actionBtn}>
-              取消登录
+              {t("取消登录")}
             </button>
           ) : (
             <button onClick={() => void login()} className={actionBtn}>
-              登录
+              {t("登录")}
             </button>
           ))}
       </div>
       {busy && !auth.logged_in && (
         <div className="mt-1.5 text-[10px] leading-snug text-indigo-200/80">
-          已打开系统浏览器，请在网页完成登录（10 分钟内）；完成后本面板自动解锁，无需停留在此窗口。
+          {t("已打开系统浏览器，请在网页完成登录（10 分钟内）；完成后本面板自动解锁，无需停留在此窗口。")}
         </div>
       )}
       {msg && (
@@ -110,7 +112,7 @@ export function AuthSection() {
       )}
       {!auth.configured && (
         <div className="mt-1 text-[10px] leading-snug text-amber-200/70">
-          需在构建时注入 OAuth client 配置。
+          {t("需在构建时注入 OAuth client 配置。")}
         </div>
       )}
     </div>

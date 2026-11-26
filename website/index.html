@@ -35,8 +35,8 @@
 <meta property="og:image" content="https://switchkit.zhenzhidaole.com/assets/app-icon.png" />
 <meta property="og:url" content="https://switchkit.zhenzhidaole.com/" />
 <meta name="twitter:card" content="summary_large_image" />
-<meta name="twitter:title" content="SwitchKit · Mac 菜单栏快捷开关 + 系统资源释放" />
-<meta name="twitter:description" content="免登录可用的菜单栏效率工具，登录后解锁专业功能。" />
+<meta name="twitter:title" id="tw-title" content="SwitchKit · Mac 菜单栏快捷开关 + 系统资源释放" />
+<meta name="twitter:description" id="tw-desc" content="免登录可用的菜单栏效率工具，登录后解锁专业功能。" />
 <meta name="twitter:image" content="https://switchkit.zhenzhidaole.com/assets/app-icon.png" />
 <link rel="canonical" href="https://switchkit.zhenzhidaole.com/" />
 <link rel="alternate" hreflang="zh-CN" href="https://switchkit.zhenzhidaole.com/" />
@@ -44,7 +44,7 @@
 <link rel="alternate" hreflang="x-default" href="https://switchkit.zhenzhidaole.com/" />
 
 <!-- 结构化数据：SoftwareApplication（GEO / 搜索引擎摘要） -->
-<script type="application/ld+json">
+<script id="ld-json" type="application/ld+json">
 {
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
@@ -264,6 +264,7 @@
 </head>
 <body>
 <div class="bg-glow"></div>
+<span id="i18n-copy-done" data-i18n="copy.done" hidden>已复制</span>
 
 <!-- NAV -->
 <nav>
@@ -281,9 +282,9 @@
       <a href="#group" data-i18n="nav.group">群组</a>
     </div>
     <div class="nav-right">
-      <button class="lang-btn" id="langBtn" type="button" aria-label="Switch language" title="切换语言 / Switch language">EN</button>
+      <button class="lang-btn" id="langBtn" type="button" aria-label="Switch language" title="切换语言" data-i18n-attr="title:lang.title">EN</button>
       <a class="nav-cta" href="#download" data-i18n="nav.cta">免费下载</a>
-      <button class="nav-toggle" id="navToggle" aria-label="展开菜单" aria-expanded="false">
+      <button class="nav-toggle" id="navToggle" aria-label="展开菜单" aria-expanded="false" data-i18n-attr="aria-label:nav.menu">
         <span></span><span></span><span></span>
       </button>
     </div>
@@ -500,7 +501,7 @@
         <p style="color:var(--muted);font-size:13.5px;margin-bottom:10px" data-i18n="install.cli.d">熟悉终端的用户也可全程用命令行完成下载、解压与首次放行：</p>
         <div class="copy">
           <button onclick="copyCmd(this)" data-i18n="copy">复制</button>
-<pre># 1. 下载（以 universal 为例，按需替换版本号与架构）
+<pre data-i18n="install.cli.code"># 1. 下载（以 universal 为例，按需替换版本号与架构）
 curl -LO https://github.com/samjoeyang/unoSwitchKit/releases/download/v0.4.16/SwitchKit-0.4.16-universal.zip
 
 # 2. 解压（分卷先合并：zip -s 0 X.zip --out full.zip && unzip full.zip）
@@ -524,10 +525,10 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
     <div class="shots-block">
       <h3 class="shots-title" data-i18n="install.shots.t">📸 首次启动放行示意（4 步）</h3>
       <div class="shots">
-        <figure><img src="assets/install-gatekeeper-blocked.jpg" alt="macOS 拦截提示：未打开 SwitchKit" loading="lazy"><figcaption data-i18n-html="install.shot.1"><b>① 安全警告</b>。双击打开后弹出「未打开"SwitchKit"」，提示 Apple 无法验证其安全性。点「完成」关掉即可，这是正常现象。</figcaption></figure>
-        <figure><img src="assets/install-privacy-security.jpg" alt="系统设置 - 隐私与安全性 - 仍要打开" loading="lazy"><figcaption data-i18n-html="install.shot.2"><b>② 前往放行</b>。打开「系统设置 → 隐私与安全性」，底部出现「已阻止"SwitchKit"以保护 Mac」，点击「仍要打开」。</figcaption></figure>
-        <figure><img src="assets/install-open-anyway.jpg" alt="确认打开 SwitchKit" loading="lazy"><figcaption data-i18n-html="install.shot.3"><b>③ 确认打开</b>。再次弹出「打开"SwitchKit"?」，点击「仍要打开」。</figcaption></figure>
-        <figure><img src="assets/install-touchid-auth.jpg" alt="触控 ID 或管理员密码授权" loading="lazy"><figcaption data-i18n-html="install.shot.4"><b>④ 授权启动</b>。用触控 ID 或输入管理员密码确认，App 随即启动并常驻菜单栏。</figcaption></figure>
+        <figure><img src="assets/install-gatekeeper-blocked.jpg" alt="macOS 拦截提示：未打开 SwitchKit" loading="lazy" data-i18n-attr="alt:install.shot.1.alt"><figcaption data-i18n-html="install.shot.1"><b>① 安全警告</b>。双击打开后弹出「未打开"SwitchKit"」，提示 Apple 无法验证其安全性。点「完成」关掉即可，这是正常现象。</figcaption></figure>
+        <figure><img src="assets/install-privacy-security.jpg" alt="系统设置 - 隐私与安全性 - 仍要打开" loading="lazy" data-i18n-attr="alt:install.shot.2.alt"><figcaption data-i18n-html="install.shot.2"><b>② 前往放行</b>。打开「系统设置 → 隐私与安全性」，底部出现「已阻止"SwitchKit"以保护 Mac」，点击「仍要打开」。</figcaption></figure>
+        <figure><img src="assets/install-open-anyway.jpg" alt="确认打开 SwitchKit" loading="lazy" data-i18n-attr="alt:install.shot.3.alt"><figcaption data-i18n-html="install.shot.3"><b>③ 确认打开</b>。再次弹出「打开"SwitchKit"?」，点击「仍要打开」。</figcaption></figure>
+        <figure><img src="assets/install-touchid-auth.jpg" alt="触控 ID 或管理员密码授权" loading="lazy" data-i18n-attr="alt:install.shot.4.alt"><figcaption data-i18n-html="install.shot.4"><b>④ 授权启动</b>。用触控 ID 或输入管理员密码确认，App 随即启动并常驻菜单栏。</figcaption></figure>
       </div>
     </div>
   </div>
@@ -544,7 +545,7 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
     <div class="note" style="max-width:820px;margin:0 auto 26px" data-i18n-html="download.update">
       <b style="color:#fff">v0.4.16 更新</b>：新增「链接生成二维码」：输入链接实时生成带静默区白边的可扫描二维码，白边宽度可调，支持一键保存 PNG 到下载目录。清理清单对齐 macos-system-cleaner v2.3，补充开发缓存与构建产物扫描（均需逐项确认，不自动清理）；权限提醒「本次不显示」改为右上角 ×。不新增隐私权限、不采集数据；最低系统要求仍为 macOS 12.7.6。
     </div>
-    <div class="detect" id="detect">正在检测你的 Mac 芯片…</div>
+    <div class="detect" id="detect" data-i18n="detect.loading">正在检测你的 Mac 芯片…</div>
     <div class="dl-grid">
       <div class="dl-card" data-arch="arm64">
         <div class="rec" hidden data-i18n="dl.rec">✓ 为你推荐</div>
@@ -586,15 +587,15 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
     <div class="panel">
       <div class="donate">
         <div class="qr">
-          <a href="https://unobox.zhenzhidaole.com/assets/telegram_group_unobox_qr.jpeg" target="_blank" rel="noopener" title="点击群二维码查看大图">
-            <picture><source srcset="assets/telegram-qr.webp" type="image/webp"><img src="assets/telegram-qr.jpg" alt="官方 Telegram 交流群二维码" /></picture>
+          <a href="https://unobox.zhenzhidaole.com/assets/telegram_group_unobox_qr.jpeg" target="_blank" rel="noopener" title="点击群二维码查看大图" data-i18n-attr="title:group.qr.title">
+            <picture><source srcset="assets/telegram-qr.webp" type="image/webp"><img src="assets/telegram-qr.jpg" alt="官方 Telegram 交流群二维码" data-i18n-attr="alt:group.qr.alt" /></picture>
           </a>
         </div>
         <div>
           <h2 style="text-align:left" data-i18n="group.t">Telegram 交流群</h2>
           <p style="text-align:left" data-i18n="group.d">在这里你可以：反馈 Bug、分享使用技巧、第一时间获取新版本通知，也能直接和开发者交流。本群为应用官方统一交流群。</p>
           <div class="note" style="text-align:left">
-            <span data-i18n="group.id">统一群组：</span><b>官方 Telegram 交流群</b><br>
+            <span data-i18n="group.id">统一群组：</span><b data-i18n="group.id.name">官方 Telegram 交流群</b><br>
             <a class="btn btn-primary" href="https://t.me/+3KH9Cn8-yIQ1ZDI1" target="_blank" rel="noopener" style="margin-top:14px;display:inline-flex" data-i18n="group.btn">打开 Telegram 加入</a>
           </div>
         </div>
@@ -615,11 +616,11 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
       <div class="donate-wrap">
         <div class="donate-qrs">
           <figure class="qr-card">
-            <div class="qr"><a href="https://unobox.zhenzhidaole.com/assets/wepay.JPG" target="_blank" rel="noopener" title="点击微信赞赏码查看大图"><picture><source srcset="assets/donate-wechat.webp" type="image/webp"><img src="assets/donate-wechat.jpg" alt="微信赞赏码" /></picture></a></div>
+            <div class="qr"><a href="https://unobox.zhenzhidaole.com/assets/wepay.JPG" target="_blank" rel="noopener" title="点击微信赞赏码查看大图" data-i18n-attr="title:donate.wechat.title"><picture><source srcset="assets/donate-wechat.webp" type="image/webp"><img src="assets/donate-wechat.jpg" alt="微信赞赏码" data-i18n-attr="alt:donate.wechat.alt" /></picture></a></div>
             <figcaption data-i18n="donate.wechat">💚 微信支付</figcaption>
           </figure>
           <figure class="qr-card">
-            <div class="qr"><a href="https://unobox.zhenzhidaole.com/assets/alipay.JPG" target="_blank" rel="noopener" title="点击支付宝收款码查看大图"><picture><source srcset="assets/donate-alipay.webp" type="image/webp"><img src="assets/donate-alipay.jpg" alt="支付宝收款码" /></picture></a></div>
+            <div class="qr"><a href="https://unobox.zhenzhidaole.com/assets/alipay.JPG" target="_blank" rel="noopener" title="点击支付宝收款码查看大图" data-i18n-attr="title:donate.alipay.title"><picture><source srcset="assets/donate-alipay.webp" type="image/webp"><img src="assets/donate-alipay.jpg" alt="支付宝收款码" data-i18n-attr="alt:donate.alipay.alt" /></picture></a></div>
             <figcaption data-i18n="donate.alipay">🔵 支付宝</figcaption>
           </figure>
         </div>
@@ -644,7 +645,8 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
   function copyCmd(btn){
     const code = btn.parentElement.querySelector('pre').innerText;
     navigator.clipboard.writeText(code).then(()=>{
-      const t = btn.textContent; btn.textContent='已复制';
+      const t = btn.textContent;
+      btn.textContent = document.getElementById('i18n-copy-done').textContent;
       setTimeout(()=>btn.textContent=t, 1400);
     });
   }
@@ -654,6 +656,7 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
     const EN = {
       'nav.features':'Features','nav.tiers':'Free / Pro','nav.preview':'Preview','nav.install':'Install',
       'nav.download':'Download','nav.group':'Community','nav.cta':'Free Download',
+      'lang.title':'Switch language','nav.menu':'Open menu',
       'hero.badge':'v0.4.16 · Actively maintained',
       'hero.h1':'Your Mac switches,<br><span class="grad-text">in one menu bar</span>',
       'hero.sub':'SwitchKit is a macOS menu-bar utility for quick switches and system resource management. Use dark mode, prevent sleep, screenshot &amp; screen recording, and cleanup scanning without signing in. Sign in to unlock memory release, Bluetooth management, and multi-provider AI balance.',
@@ -707,20 +710,25 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
       'install.perm.6t':'Admin Password','install.perm.6d':'Release memory, flush DNS (after login; credentials never stored)',
       'install.note1':'⚠️ <b>Re-authorize after every update</b>: ad-hoc signing produces a new signature for each build, so macOS treats it as a new app and prior privacy grants silently stop working — the toggles still show “On” and usually no prompt appears. Quit the app and run the command below, then reopen and trigger each feature to approve the prompts.',
       'install.note2':'The in-app banner detects rebuilds automatically and offers a one-click copy, a link to System Settings, and a permission self-check. Some system-level permissions may need a macOS restart before prompting again.',
-      'copy':'Copy',
+      'copy':'Copy','copy.done':'Copied',
       'install.steps.t':'🚀 Install Steps',
       'install.step.1':'<b>Download</b>. Go to the <a href="#download">download section</a> and pick the right build (Apple silicon → <b>arm64</b>, Intel → <b>x86_64</b>, unsure → <b>universal</b>).',
       'install.step.2':'<b>Unzip &amp; drag to Applications</b>. Double-click the archive to get <b>SwitchKit.app</b>, then drag it into <code>/Applications</code>. Do not launch from inside the archive.',
       'install.step.3':'<b>First launch / after each rebuild</b>. Open Applications and <b>click SwitchKit directly</b>. macOS shows a security warning — follow the 4 steps below. Since macOS 15 the right-click workaround is gone; <b>repeat on every new download and update</b>.',
       'install.note3':'There is <b>no Dock icon</b> after launch — click the SwitchKit menu-bar icon. If you still see “app is damaged”, run the command below to remove the quarantine flag:',
       'install.cli.t':'💻 Command Line (Optional)','install.cli.d':'Terminal users can download, unzip and approve entirely from the command line:',
+      'install.cli.code':'# 1. Download (universal shown; adjust version and chip as needed)\ncurl -LO https://github.com/samjoeyang/unoSwitchKit/releases/download/v0.4.16/SwitchKit-0.4.16-universal.zip\n\n# 2. Unzip (split archives: zip -s 0 X.zip --out full.zip && unzip full.zip)\nunzip SwitchKit-0.4.16-universal.zip -d /tmp/sk\nmv /tmp/sk/SwitchKit.app /Applications/\n\n# 3. Remove quarantine and open (bypass Gatekeeper)\nxattr -dr com.apple.quarantine /Applications/SwitchKit.app\nopen /Applications/SwitchKit.app',
       'install.uninstall.t':'🗑 Uninstall',
       'install.shots.t':'📸 First-launch approval (4 steps)',
       'install.shot.1':'<b>① Security warning</b>. Opening shows “SwitchKit cannot be opened” — normal. Click Done.',
       'install.shot.2':'<b>② Go approve</b>. Open System Settings → Privacy &amp; Security, find the blocked SwitchKit entry, click “Open Anyway”.',
       'install.shot.3':'<b>③ Confirm</b>. Confirm “Open SwitchKit?” with “Open Anyway”.',
       'install.shot.4':'<b>④ Authorize</b>. Confirm with Touch ID or your admin password; the app launches into the menu bar.',
-      'download.kicker':'Download','download.h2':'Download SwitchKit',
+      'install.shot.1.alt':'macOS warning: SwitchKit cannot be opened',
+      'install.shot.2.alt':'System Settings – Privacy & Security – Open Anyway',
+      'install.shot.3.alt':'Confirm opening SwitchKit',
+      'install.shot.4.alt':'Authorize with Touch ID or admin password',
+      'download.kicker':'Download','download.h2':'Download SwitchKit','detect.loading':'Detecting your Mac chip…',
       'download.sub':'Pick the build for your Mac chip. Not sure? Choose “Universal” — it works on both.',
       'download.update':'<b style="color:#fff">v0.4.16 update</b>: generate QR codes from links — real-time encoding with a quiet-zone margin (adjustable) for reliable scanning, plus one-click PNG save to Downloads. Cleanup manifest aligned with macos-system-cleaner v2.3: more dev caches and build-artifact scanning (all manual, never auto-cleaned). Permission banner dismiss moved to a top-right ×. No new privacy permissions, no telemetry. Minimum macOS 12.7.6.',
       'dl.rec':'✓ Recommended for you','dl.rec.def':'★ Recommended (default)','dl.btn':'Download',
@@ -731,9 +739,13 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
       'group.kicker':'Community','group.h2':'Join the community','group.sub':'Bugs, suggestions, and release news — find us on Telegram. Scan the code or tap the button below to join our unified official group.',
       'group.t':'Telegram Group','group.d':'Report bugs, share tips, get release news first, and talk to the developer. This is the unified official group across all our apps.',
       'group.id':'Unified group: ','group.btn':'Open Telegram',
+      'group.qr.title':'Click the group QR code to enlarge','group.qr.alt':'Official Telegram group QR code',
+      'group.id.name':'Official Telegram group',
       'donate.kicker':'Support','donate.h2':'Buy the author a coffee ☕',
       'donate.sub':'SwitchKit is free, ad-free, and collects no data. If it makes your Mac better, consider sponsoring ongoing development.',
       'donate.wechat':'💚 WeChat Pay','donate.alipay':'🔵 Alipay',
+      'donate.wechat.title':'Click the WeChat Pay code to enlarge','donate.wechat.alt':'WeChat Pay donation code',
+      'donate.alipay.title':'Click the Alipay code to enlarge','donate.alipay.alt':'Alipay donation code',
       'donate.t':'Support development','donate.d':'Every bit goes to server &amp; certificate costs, new features, and… more coffee. 🙏',
       'donate.note':'Scan or long-press the QR codes above. Payment is as shown in the QR codes; SwitchKit is free, ad-free, and collects no data.',
       'footer.1':'SwitchKit · macOS menu-bar switches + system resource tool · v0.4.16<br>Built with Tauri 2.0 (Rust) + React + Swift sidecar · offline by default, no telemetry; auth service only on sign-in'
@@ -741,22 +753,64 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
     const SEO_EN = {
       title:'SwitchKit · Mac Menu-Bar Switches + System Resource Tool',
       desc:'SwitchKit is a macOS menu-bar utility. Use quick switches, resource monitoring, and cleanup scanning without signing in; sign in to unlock memory release, Bluetooth management, AI balances, and custom shortcuts.',
-      og:'Free without sign-in: quick switches, monitoring, cleanup scan. Unlock memory release, Bluetooth, AI balances, and shortcuts after login. macOS 12.7.6+, universal.'
+      og:'Free without sign-in: quick switches, monitoring, cleanup scan. Unlock memory release, Bluetooth, AI balances, and shortcuts after login. macOS 12.7.6+, universal.',
+      twTitle:'SwitchKit · Mac Menu-Bar Switches + System Resource Tool',
+      twDesc:'Free menu-bar utility: quick switches and resource tools without sign-in. Sign in for pro features.'
     };
     const SEO_ZH = {
       title:document.getElementById('seo-title').textContent,
       desc:document.getElementById('seo-desc').getAttribute('content'),
-      og:document.getElementById('og-desc').getAttribute('content')
+      og:document.getElementById('og-desc').getAttribute('content'),
+      twTitle:document.getElementById('tw-title').getAttribute('content'),
+      twDesc:document.getElementById('tw-desc').getAttribute('content')
     };
+    // JSON-LD 中文原文来自静态 HTML（爬虫仍抓到中文），英文态在客户端替换
+    const LD = document.getElementById('ld-json');
+    let LD_ZH = null;
+    try { LD_ZH = JSON.parse(LD.textContent); } catch(e){}
+    const LD_EN = LD_ZH && {
+      ...LD_ZH,
+      description:'macOS menu-bar utility for quick switches and system resource management. Use switches, monitoring, and cleanup scanning without signing in; sign in for memory release, Bluetooth management, AI balances, and custom shortcuts.',
+      featureList:['Light / dark / auto appearance','Prevent sleep','Screenshot & recording','Cleanup scan & space analysis','Memory release & DNS flush','Bluetooth device management','Multi-provider AI balances','Global shortcuts']
+    };
+    // 显式 URL 参数优先于 localStorage 记忆值；?lang=zh 与无参数等价
     let lang = 'zh';
-    try { if (new URLSearchParams(location.search).get('lang') === 'en') lang = 'en'; } catch(e){}
-    try { const s = localStorage.getItem('sk-lang'); if (s === 'en' || s === 'zh') lang = s; } catch(e){}
+    let urlLang = null;
+    try {
+      const q = new URLSearchParams(location.search).get('lang');
+      if (q === 'en' || q === 'zh') urlLang = q;
+    } catch(e){}
+    if (urlLang) lang = urlLang;
+    else {
+      try { const s = localStorage.getItem('sk-lang'); if (s === 'en' || s === 'zh') lang = s; } catch(e){}
+    }
+
+    // URL 与 hreflang 语义对齐：英文态固定为 ?lang=en，中文态用无参数 canonical
+    function syncUrl(){
+      try {
+        const u = new URL(location.href);
+        if (lang === 'en') u.searchParams.set('lang', 'en');
+        else u.searchParams.delete('lang');
+        const next = u.pathname + u.search + u.hash;
+        const cur = location.pathname + location.search + location.hash;
+        if (next !== cur) history.replaceState(null, '', next);
+      } catch(e){}
+    }
 
     // 中文原文快照（静态 HTML）
     const ZH = {};
     document.querySelectorAll('[data-i18n],[data-i18n-html]').forEach(el=>{
       const k = el.getAttribute('data-i18n') || el.getAttribute('data-i18n-html');
       ZH[k] = el.innerHTML;
+    });
+    // data-i18n-attr 形如 "alt:key1;title:key2"，中文原文直接取属性当前值
+    const attrPairs = el => el.getAttribute('data-i18n-attr').split(';').map(p=>{
+      const i = p.indexOf(':');
+      return i < 0 ? null : { attr:p.slice(0,i).trim(), key:p.slice(i+1).trim() };
+    }).filter(Boolean);
+    const ZH_ATTR = {};
+    document.querySelectorAll('[data-i18n-attr]').forEach(el=>{
+      attrPairs(el).forEach(({attr,key})=>{ ZH_ATTR[attr+'|'+key] = el.getAttribute(attr); });
     });
 
     function apply(){
@@ -767,16 +821,26 @@ rm -rf ~/Library/Application\ Support/com.switchkit.app</pre>
         const v = isEn ? EN[k] : ZH[k];
         if (v !== undefined) el.innerHTML = v;
       });
+      document.querySelectorAll('[data-i18n-attr]').forEach(el=>{
+        attrPairs(el).forEach(({attr,key})=>{
+          const v = isEn ? EN[key] : ZH_ATTR[attr+'|'+key];
+          if (v !== undefined) el.setAttribute(attr, v);
+        });
+      });
       document.getElementById('seo-title').textContent = isEn ? SEO_EN.title : SEO_ZH.title;
       const desc = isEn ? SEO_EN.desc : SEO_ZH.desc;
       const ogd = isEn ? SEO_EN.og : SEO_ZH.og;
       document.getElementById('seo-desc').setAttribute('content', desc);
       document.getElementById('og-desc').setAttribute('content', ogd);
       document.getElementById('og-title').setAttribute('content', isEn ? SEO_EN.title : SEO_ZH.title);
+      document.getElementById('tw-title').setAttribute('content', isEn ? SEO_EN.twTitle : SEO_ZH.twTitle);
+      document.getElementById('tw-desc').setAttribute('content', isEn ? SEO_EN.twDesc : SEO_ZH.twDesc);
+      if (LD && (isEn ? LD_EN : LD_ZH)) LD.textContent = JSON.stringify(isEn ? LD_EN : LD_ZH, null, 2);
       const btn = document.getElementById('langBtn');
       btn.textContent = isEn ? '中文' : 'EN';
-      btn.setAttribute('aria-label', isEn ? '切换为中文' : 'Switch to English');
+      btn.setAttribute('aria-label', isEn ? 'Switch to Chinese' : '切换到英文');
       try { localStorage.setItem('sk-lang', lang); } catch(e){}
+      syncUrl();
       // 架构检测文案随语言刷新
       if (window.__detectArch) window.__detectArch();
     }

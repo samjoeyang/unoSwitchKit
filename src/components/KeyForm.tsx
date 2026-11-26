@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { api } from "../ipc";
+import { useT, tb } from "../i18n";
 import { PROVIDERS } from "../providers";
 import type { ProviderKey } from "../types";
 
@@ -15,7 +16,10 @@ const inputCls =
 
 /// 余额账号添加表单：选择平台 + 备注 + API Key（中转站额外填站点地址）。
 /// 设置页（首个账号）与余额区（追加账号）共用同一套逻辑。
-export function KeyForm({ onSaved, onCancel, cancelLabel = "取消" }: Props) {
+export function KeyForm({ onSaved, onCancel, cancelLabel }: Props) {
+  const t = useT();
+  // 默认值在函数体内计算，语言切换后联动更新
+  const cancelText = cancelLabel ?? t("取消");
   const [provider, setProvider] = useState("deepseek");
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -28,11 +32,11 @@ export function KeyForm({ onSaved, onCancel, cancelLabel = "取消" }: Props) {
   async function save() {
     const key = apiKey.trim();
     if (!key) {
-      setMsg("请填写 API Key");
+      setMsg(t("请填写 API Key"));
       return;
     }
     if (meta.needsBaseUrl && !baseUrl.trim()) {
-      setMsg("请填写站点地址");
+      setMsg(t("请填写站点地址"));
       return;
     }
     setSaving(true);
@@ -57,7 +61,7 @@ export function KeyForm({ onSaved, onCancel, cancelLabel = "取消" }: Props) {
       setBaseUrl("");
       onSaved();
     } catch (e) {
-      setMsg(`保存失败：${e}`);
+      setMsg(t("保存失败：{detail}", { detail: tb(e) }));
     } finally {
       setSaving(false);
     }
@@ -72,23 +76,23 @@ export function KeyForm({ onSaved, onCancel, cancelLabel = "取消" }: Props) {
       >
         {PROVIDERS.map((p) => (
           <option key={p.id} value={p.id}>
-            {p.name}
+            {t(p.name)}
           </option>
         ))}
       </select>
-      <div className="text-[9px] leading-snug text-white/35">{meta.hint}</div>
+      <div className="text-[9px] leading-snug text-white/35">{t(meta.hint)}</div>
       {meta.needsBaseUrl && (
         <input
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="站点地址，如 https://api.example.com"
+          placeholder={t("站点地址，如 https://api.example.com")}
           className={inputCls}
         />
       )}
       <input
         value={label}
         onChange={(e) => setLabel(e.target.value)}
-        placeholder="备注（可选，如：主账号）"
+        placeholder={t("备注（可选，如：主账号）")}
         className={inputCls}
       />
       <input
@@ -99,14 +103,14 @@ export function KeyForm({ onSaved, onCancel, cancelLabel = "取消" }: Props) {
         className={inputCls}
       />
       <div className="flex items-center justify-between">
-        <span className="text-[9px] text-white/30">仅保存在本机配置文件中</span>
+        <span className="text-[9px] text-white/30">{t("仅保存在本机配置文件中")}</span>
         <div className="flex gap-2">
           {onCancel && (
             <button
               onClick={onCancel}
               className="text-[10px] text-white/45 transition hover:text-white/70"
             >
-              {cancelLabel}
+              {cancelText}
             </button>
           )}
           <button
@@ -114,7 +118,7 @@ export function KeyForm({ onSaved, onCancel, cancelLabel = "取消" }: Props) {
             disabled={saving}
             className="rounded bg-indigo-500/20 px-2 py-0.5 text-[10px] text-indigo-100 transition hover:bg-indigo-500/30 disabled:opacity-40"
           >
-            {saving ? "保存中…" : "保存"}
+            {saving ? t("保存中…") : t("保存")}
           </button>
         </div>
       </div>

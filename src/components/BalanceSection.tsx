@@ -3,6 +3,7 @@ import { StatusDot } from "./StatusDot";
 import { KeyForm } from "./KeyForm";
 import { LockBadge } from "./LockBadge";
 import { api } from "../ipc";
+import { useT, tb, type TranslationKey } from "../i18n";
 import { gateFrontend } from "../authGate";
 import { providerName } from "../providers";
 import type { AccountBalance, ProviderKey } from "../types";
@@ -24,6 +25,7 @@ interface Props {
 /// 模型余额区：支持多平台、多账号混排。
 /// 无账号时整块不显示（首次添加入口在「设置」里）。
 export function BalanceSection({ version = 0, onChanged }: Props) {
+  const t = useT();
   const [loaded, setLoaded] = useState(false);
   const [keys, setKeys] = useState<ProviderKey[]>([]);
   const [balances, setBalances] = useState<AccountBalance[]>([]);
@@ -57,11 +59,11 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
     try {
       setBalances(await api.getBalances());
     } catch (e) {
-      setMsg(`余额查询失败：${e}`);
+      setMsg(t("余额查询失败：{detail}", { detail: tb(e) }));
     } finally {
       setLoading(false);
     }
-  }, [keys.length]);
+  }, [keys.length, t]);
 
   // Key 数量或成员变化都要重新查询（删一个再加一个时数量不变）
   const keysKey = keys.map((k) => k.id).join(",");
@@ -73,13 +75,13 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
       return;
     }
     refreshBalances();
-    const t = setInterval(refreshBalances, REFRESH_MS);
+    const timer = setInterval(refreshBalances, REFRESH_MS);
     const onVis = () => {
       if (!document.hidden) refreshBalances();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
-      clearInterval(t);
+      clearInterval(timer);
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [keysKey, keys.length, refreshBalances]);
@@ -91,10 +93,10 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
       s.provider_keys = (s.provider_keys ?? []).filter((k) => k.id !== id);
       await api.saveSettings(s);
       setKeys(s.provider_keys);
-      setMsg("已删除");
+      setMsg(t("已删除"));
       onChanged?.();
     } catch (e) {
-      setMsg(`删除失败：${e}`);
+      setMsg(t("删除失败：{detail}", { detail: tb(e) }));
     }
   }
 
@@ -104,7 +106,7 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
     <div className="mt-3 rounded-xl border border-white/10 bg-white/5 p-3">
       <div className="flex items-center justify-between">
         <span className="flex items-center gap-1 text-[13px] font-medium text-white/90">
-          模型余额 <LockBadge />
+          {t("模型余额")} <LockBadge />
         </span>
         <div className="flex items-center gap-3 text-[10px]">
           <button
@@ -112,41 +114,45 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
             disabled={loading}
             className="text-white/50 transition hover:text-white/85 disabled:opacity-40"
           >
-            {loading ? "刷新中…" : "刷新"}
+            {loading ? t("刷新中…") : t("刷新")}
           </button>
           <button
             onClick={() => setAdding((v) => !v)}
             className="text-white/50 transition hover:text-white/85"
           >
-            添加
+            {t("添加")}
           </button>
         </div>
       </div>
 
       <div className="thin-scroll mt-2 max-h-[196px] space-y-1.5 overflow-y-auto pr-1">
         {balances.length === 0 && (
-          <div className="text-[11px] text-white/40">查询中…</div>
+          <div className="text-[11px] text-white/40">{t("查询中…")}</div>
         )}
         {balances.map((b) => {
           const primary = b.balances.find((x) => x.primary) ?? b.balances[0];
           const others = b.balances.filter((x) => x !== primary);
+          // 自动生成的用户名为「平台名 + 序号」；平台名是稳定字典 key，用户自定义名原样显示
+          const autoLabel = b.label.match(/^(.*?)(\s+\d+)$/);
           return (
             <div key={b.id} className="rounded-lg bg-black/20 px-2 py-1.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-1.5">
                   <StatusDot on={b.ok && b.is_available} />
                   <span className="shrink-0 rounded bg-white/10 px-1 py-[1px] text-[9px] text-white/55">
-                    {providerName(b.provider)}
+                    {t(providerName(b.provider))}
                   </span>
                   <span className="truncate text-[12px] text-white/85">
-                    {b.label}
+                    {autoLabel
+                      ? `${t(autoLabel[1] as TranslationKey)}${autoLabel[2]}`
+                      : b.label}
                   </span>
                 </div>
                 <button
                   onClick={() => removeKey(b.id)}
                   className="shrink-0 text-[10px] text-rose-300/60 transition hover:text-rose-300"
                 >
-                  删除
+                  {t("删除")}
                 </button>
               </div>
               {b.ok ? (
@@ -157,21 +163,21 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
                       {primary.amount}
                     </span>
                   ) : (
-                    <span className="text-[11px] text-white/45">无余额信息</span>
+                    <span className="text-[11px] text-white/45">{t("无余额信息")}</span>
                   )}
                   {others.map((x, i) => (
                     <span key={`${x.label}-${i}`} className="text-[10px] text-white/40">
-                      {x.label} {currencySymbol(x.currency)}
+                      {tb(x.label)} {currencySymbol(x.currency)}
                       {x.amount}
                     </span>
                   ))}
                   {!b.is_available && (
-                    <span className="text-[10px] text-amber-300/80">余额不足</span>
+                    <span className="text-[10px] text-amber-300/80">{t("余额不足")}</span>
                   )}
                 </div>
               ) : (
                 <div className="mt-0.5 pl-4 text-[10px] leading-snug text-rose-300/80">
-                  {b.error}
+                  {b.error ? tb(b.error) : null}
                 </div>
               )}
             </div>
@@ -185,7 +191,7 @@ export function BalanceSection({ version = 0, onChanged }: Props) {
             onSaved={async () => {
               await reloadKeys();
               setAdding(false);
-              setMsg("已添加，正在查询余额…");
+              setMsg(t("已添加，正在查询余额…"));
               onChanged?.();
             }}
             onCancel={() => setAdding(false)}
